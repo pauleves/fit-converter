@@ -1,0 +1,108 @@
+# ==========================
+# Python Core
+# ==========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ==========================
+# Virtual Environments
+# ==========================
+.venv/
+venv/
+env/
+.pyenv/
+pip-wheel-metadata/
+*.egg-info/
+.eggs/
+*.egg
+
+# ==========================
+# Build & Distribution
+# ==========================
+build/
+dist/
+wheels/
+*.manifest
+*.spec
+
+# ==========================
+# IDE / Editor Metadata
+# ==========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*.iml
+
+# ==========================
+# Logs / Caches
+# ==========================
+*.log
+*.tmp
+*.bak
+.cache/
+pytest_cache/
+.mypy_cache/
+coverage/
+htmlcov/
+.pytest_cache/
+.pyre/
+.dmypy.json
+.pytype/
+
+# ==========================
+# Environment / Config Files
+# ==========================
+.env
+.env.*
+*.ini
+*.cfg
+*.toml
+!pyproject.toml  # keep your main config tracked
+
+# ==========================
+# OS / Miscellaneous
+# ==========================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Icon?
+desktop.ini
+
+# ==========================
+# Project-Specific
+# ==========================
+# Data & Generated Files
+data/
+!data/samples/       # keep small example FIT files for testing
+
+# Output / Reports
+outputs/
+reports/
+exports/
+uploads/
+tmp/
+scratch/
+notes/
+
+# FIT and CSV test files
+*.fit
+*.FIT
+*.csv
+
+# ==========================
+# Testing / CI
+# ==========================
+.tox/
+.nox/
+.coverage
+*.coverage
+coverage.xml
+test-results/
+
+# ==========================
+# Jupyter (if used)
+# ==========================
+.ipynb_checkpoints/
+*.ipynb
