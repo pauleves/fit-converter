@@ -1,0 +1,13 @@
+[logging]
+level = "INFO"
+to_file = true
+file_path = "logs/fit-converter.log"
+rotate_max_bytes = 1000000
+backup_count = 5
+
+[converter]
+transform_default = true
+
+[paths]
+inbox = "inbox/"
+outbox = "outbox/"

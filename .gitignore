@@ -61,7 +61,12 @@ htmlcov/
 *.ini
 *.cfg
 *.toml
-!pyproject.toml  # keep your main config tracked
+
+# keep your main config tracked
+!pyproject.toml
+
+# example config file
+!config.example.toml
 
 # ==========================
 # Inbox and Outbox

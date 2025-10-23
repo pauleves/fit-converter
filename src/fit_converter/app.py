@@ -1,6 +1,7 @@
 import logging
 
-from flask import Flask, jsonify, render_template_string, request, send_file
+from flask import Flask, Response, jsonify, render_template_string, request, send_file
+from werkzeug.exceptions import HTTPException
 
 from fit_converter import paths
 
@@ -10,15 +11,28 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 
+@app.errorhandler(HTTPException)
+def handle_http_exc(e: HTTPException):
+    # 4xx are client issues; 5xx are server issues
+    level = logging.WARNING if 400 <= e.code < 500 else logging.ERROR
+    logger.log(level, "HTTP %s %s: %s", e.code, e.name, e.description)
+    return jsonify(error=e.description), e.code
+
+
 @app.errorhandler(Exception)
 def handle_unexpected(e):
     app.logger.exception("Unhandled error during request")
-    return jsonify(error="Sorry, something went wrong while converting your file."), 400
+    return jsonify(error="Sorry, something went wrong while converting your file."), 500
 
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}, 200
 
 
 @app.get("/")
@@ -53,6 +67,11 @@ def upload_file():
         return "<p>Conversion not yet implemented.</p>", 501
 
     return send_file(out_path, as_attachment=True)
+
+
+@app.route("/favicon.ico")
+def favicon_empty():
+    return Response(status=204)
 
 
 if __name__ == "__main__":

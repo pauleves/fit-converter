@@ -1,0 +1,67 @@
+[project]
+name = "fit-converter"
+version = "0.3.0"
+description = "FIT → CSV converter with optional transformations and Flask interface"
+readme = "README.md"
+requires-python = ">=3.14"
+authors = [
+    { name = "Paul Eves" }
+]
+license-files = ["LICENSE"]
+license = "MIT"
+dependencies = [
+    "fitparse>=1.2.0",
+    "Flask>=3.1.2",
+    "watchdog>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black>=25.9.0",
+    "isort>=5.12.0",
+    "ruff>=0.6.0",
+    "pytest>=8.0.0",
+    "pre-commit>=3.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["fit_converter*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+fit_converter = []
+
+# Tool configs (nice to keep in one place)
+[tool.black]
+line-length = 88
+target-version = ["py313"]
+skip-string-normalization = true
+
+[tool.isort]
+profile = "black"
+known_first_party = ["fit_converter"]
+line_length = 88
+combine_as_imports = true
+multi_line_output = 3
+include_trailing_comma = true
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+fix = true
+src = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = ["src"]
