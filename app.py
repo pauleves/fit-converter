@@ -24,7 +24,7 @@ def upload_form():
             <input type="file" name="fitfile" accept=".fit" required>
             <label style="display:block;margin-top:8px">
             <input type="checkbox" name="transform" checked>
-            Transform for readability (pace, SPM, degrees)
+            Transform for readability (pace mm:ss, SPM, degrees)
             </label>
             <button type="submit" style="margin-top:8px">Upload & Convert</button>
         </form>

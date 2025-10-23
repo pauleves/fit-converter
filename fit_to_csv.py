@@ -26,13 +26,21 @@ def _semicircles_to_degrees(value):
         return None
 
 
-def _pace_min_per_mile_from_mps(speed_mps):
-    # speed in m/s → pace (minutes per mile) as a float (e.g., 7.50 = 7 min 30 s)
-    if not speed_mps or float(speed_mps) <= 0:
+def _pace_mmss_from_mps(speed_mps):
+    """m/s → 'mm:ss' per mile; returns None if speed <= 0 or missing."""
+    try:
+        v = float(speed_mps)
+    except (TypeError, ValueError):
         return None
-    meters_per_mile = 1609.344
-    sec_per_mile = meters_per_mile / float(speed_mps)
-    return sec_per_mile / 60.0
+    if v <= 0:
+        return None
+    sec_per_mile = 1609.344 / v
+    m = int(sec_per_mile // 60)
+    s = int(round(sec_per_mile - m * 60))
+    if s == 60:
+        m += 1
+        s = 0
+    return f"{m:02d}:{s:02d}"
 
 
 def fit_to_csv(
@@ -88,7 +96,7 @@ def fit_to_csv(
         # We only expose a single pace column to keep CSV tidy.
         if "speed" in header or "enhanced_speed" in header:
             header = [
-                ("pace_min_per_mile" if h in ("speed", "enhanced_speed") else h)
+                ("pace_mm_ss_per_mile" if h in ("speed", "enhanced_speed") else h)
                 for h in header
             ]
             # If both existed, we just keep one pace column name
@@ -118,7 +126,7 @@ def fit_to_csv(
                 raw_speed = values.get("enhanced_speed")
                 if raw_speed is None:
                     raw_speed = values.get("speed")
-                row["pace_min_per_mile"] = _pace_min_per_mile_from_mps(raw_speed)
+                row["pace_mm_ss_per_mile"] = _pace_mmss_from_mps(raw_speed)
 
                 # --- coords semicircles → degrees (replace) ---
                 row["latitude_deg"] = _semicircles_to_degrees(
