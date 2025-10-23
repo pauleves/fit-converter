@@ -1,41 +1,37 @@
 from __future__ import annotations
 
+import logging
 import queue
 import sys
 import threading
+import time
 from pathlib import Path
-from time import sleep
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from fit_to_csv import fit_to_csv
+from fit_converter import paths
 
-BASE_DIR = Path(__file__).parent
-INBOX = BASE_DIR / "inbox"
-OUTBOX = BASE_DIR / "outbox"
+from .converter import fit_to_csv
+
+logger = logging.getLogger(__name__)
+inbox = paths["inbox"]
+outbox = paths["outbox"]
 
 
 # --- tiny helper: wait until a file is "stable" (size unchanged for N checks) ---
-def wait_until_stable(path: Path, checks: int = 5, interval: float = 0.2) -> bool:
-    """Return True if file size remains unchanged for `checks` intervals."""
-    last = -1
-    stable = 0
-    for _ in range(checks * 10):  # upper bound so we don't hang forever
-        try:
-            size = path.stat().st_size
-        except FileNotFoundError:
-            stable = 0
-            sleep(interval)
-            continue
-        if size == last and size > 0:
-            stable += 1
-            if stable >= checks:
-                return True
-        else:
-            stable = 0
-            last = size
-        sleep(interval)
+def wait_until_stable(path: Path, timeout_s=30, poll_s=0.5) -> bool:
+    logger.debug("Waiting for file to stabilize: %s", path)
+    deadline = time.time() + timeout_s
+    last_size = -1
+    while time.time() < deadline:
+        size = path.stat().st_size
+        if size == last_size:
+            logger.debug("File stabilized: %s", path)
+            return True
+        last_size = size
+        time.sleep(poll_s)
+    logger.warning("File did not stabilize within %ss: %s", timeout_s, path)
     return False
 
 
@@ -51,32 +47,33 @@ def worker():
         try:
             process_fit(path)
         except Exception as e:
-            print(f"[watcher] ERROR converting {path.name}: {e}", file=sys.stderr)
+            logger.exception(
+                f"[watcher] ERROR converting {path.name}: {e}", file=sys.stderr
+            )
         finally:
             _tasks.task_done()
 
 
 def process_fit(in_path: Path):
     if not in_path.exists():
-        print(f"[watcher] Skipped (missing): {in_path}")
+        logger.warning(f"[watcher] Skipped (missing): {in_path}")
         return
     if in_path.suffix.lower() != ".fit":
-        print(f"[watcher] Ignored (not .fit): {in_path.name}")
+        logger.warning(f"[watcher] Ignored (not .fit): {in_path.name}")
         return
 
     # Wait for file to finish writing
     if not wait_until_stable(in_path):
-        print(
+        logger.warning(
             f"[watcher] WARNING: {in_path.name} did not stabilize; attempting anyway."
         )
 
-    OUTBOX.mkdir(exist_ok=True)
     out_name = in_path.name + ".csv"
-    out_path = OUTBOX / out_name
+    out_path = outbox / out_name
 
-    print(f"[watcher] Converting → {out_path.name}")
+    logger.info(f"[watcher] Converting → {out_path.name}")
     rows = fit_to_csv(in_path, out_path, transform=True)
-    print(f"[watcher] Done: {rows} rows → {out_path}")
+    logger.info(f"[watcher] Done: {rows} rows → {out_path}")
 
 
 class InboxHandler(FileSystemEventHandler):
@@ -103,8 +100,6 @@ class InboxHandler(FileSystemEventHandler):
 
 
 def main():
-    INBOX.mkdir(exist_ok=True)
-    OUTBOX.mkdir(exist_ok=True)
 
     # start worker
     t = threading.Thread(target=worker, daemon=True)
@@ -113,17 +108,17 @@ def main():
     # start observer
     observer = Observer()
     handler = InboxHandler()
-    observer.schedule(handler, str(INBOX), recursive=False)
+    observer.schedule(handler, str(inbox), recursive=False)
     observer.start()
 
-    print(f"[watcher] Watching: {INBOX}  →  writing CSVs to: {OUTBOX}")
-    print("[watcher] Drop .fit files into inbox/ to convert (Ctrl+C to stop).")
+    logger.info(f"[watcher] Watching: {inbox}  →  writing CSVs to: {inbox}")
+    logger.info("[watcher] Drop .fit files into inbox/ to convert (Ctrl+C to stop).")
 
     try:
         while True:
-            sleep(1.0)
+            time.sleep(1.0)
     except KeyboardInterrupt:
-        print("\n[watcher] Stopping…")
+        logger.info("\n[watcher] Stopping…")
     finally:
         observer.stop()
         observer.join()

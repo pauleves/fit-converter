@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import csv
+import logging
 from pathlib import Path
 from typing import Iterable, Sequence
 
 from fitparse import FitFile
+
+logger = logging.getLogger(__name__)
 
 
 def _to_spm(cadence: float | int | None) -> float | None:
@@ -146,7 +149,9 @@ if __name__ == "__main__":
     from pathlib import Path
 
     if len(sys.argv) < 3:
-        print("Usage: python fit_to_csv.py <input.fit> <output.csv> [--transform]")
+        logger.info(
+            "Usage: python fit_to_csv.py <input.fit> <output.csv> [--transform]"
+        )
         raise SystemExit(2)
 
     in_file = Path(sys.argv[1])
@@ -154,4 +159,6 @@ if __name__ == "__main__":
     transform_flag = "--transform" in sys.argv
 
     n = fit_to_csv(in_file, out_file, transform=transform_flag)
-    print(f"Wrote {n} rows to {out_file} {'(transformed)' if transform_flag else ''}")
+    logger.info(
+        f"Wrote {n} rows to {out_file} {'(transformed)' if transform_flag else ''}"
+    )

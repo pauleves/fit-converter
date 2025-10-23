@@ -38,6 +38,8 @@ wheels/
 # ==========================
 # Logs / Caches
 # ==========================
+logs/*
+!logs/.gitkeep
 *.log
 *.tmp
 *.bak
@@ -60,6 +62,14 @@ htmlcov/
 *.cfg
 *.toml
 !pyproject.toml  # keep your main config tracked
+
+# ==========================
+# Inbox and Outbox
+# ==========================
+inbox/*
+!inbox/.gitkeep
+outbox/*
+!outbox/.gitkeep
 
 # ==========================
 # OS / Miscellaneous

@@ -1,13 +1,19 @@
-from pathlib import Path
+import logging
 
-from flask import Flask, render_template_string, request, send_file
+from flask import Flask, jsonify, render_template_string, request, send_file
 
-from fit_to_csv import fit_to_csv
+from fit_converter import paths
 
+from .converter import fit_to_csv
+
+logger = logging.getLogger(__name__)
 app = Flask(__name__)
-BASE_DIR = Path(__file__).parent
-INBOX = BASE_DIR / "inbox"
-OUTBOX = BASE_DIR / "outbox"
+
+
+@app.errorhandler(Exception)
+def handle_unexpected(e):
+    app.logger.exception("Unhandled error during request")
+    return jsonify(error="Sorry, something went wrong while converting your file."), 400
 
 
 @app.get("/health")
@@ -35,11 +41,9 @@ def upload_form():
 @app.post("/upload")
 def upload_file():
     uploaded = request.files["fitfile"]
-    inbox_path = INBOX / uploaded.filename
-    out_path = OUTBOX / (uploaded.filename + ".csv")
+    inbox_path = paths["inbox"] / uploaded.filename
+    out_path = paths["outbox"] / (uploaded.filename + ".csv")
 
-    INBOX.mkdir(exist_ok=True)
-    OUTBOX.mkdir(exist_ok=True)
     uploaded.save(inbox_path)
 
     try:
