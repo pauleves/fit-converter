@@ -11,15 +11,17 @@ from pathlib import Path
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from fit_converter import paths
+from fit_converter.cfg import effective_config
+from fit_converter.logging_setup import configure_logging  # if not already present
+from fit_converter.paths import INBOX, OUTBOX, resolve
 
 from .converter import fit_to_csv
 
 logger = logging.getLogger(__name__)
 
 # Directories (overridable via CLI)
-inbox: Path = paths["inbox"]
-outbox: Path = paths["outbox"]
+inbox: Path = INBOX
+outbox: Path = OUTBOX
 
 # Runtime controls (overridable via CLI)
 _STOP = False
@@ -174,60 +176,89 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="fit-converter-watcher", description="Watch inbox/ and convert FIT→CSV"
     )
+    # CLI only overrides when provided; config supplies defaults
     parser.add_argument(
         "--inbox",
         type=Path,
-        default=inbox,
+        default=None,
         help="Directory to watch for .fit files (default from config)",
     )
     parser.add_argument(
         "--outbox",
         type=Path,
-        default=outbox,
+        default=None,
         help="Directory to write CSVs (default from config)",
     )
     parser.add_argument(
         "--transform",
         action=argparse.BooleanOptionalAction,
-        default=TRANSFORM,
-        help="Apply readability transforms (default: true)",
+        default=None,
+        help="Apply readability transforms (default from config)",
     )
     parser.add_argument(
         "--poll",
         type=float,
-        default=POLL,
-        help="Polling interval while stabilising a file (seconds)",
+        default=None,
+        help="Polling interval while stabilising a file (seconds; default from config)",
     )
     parser.add_argument(
-        "--retries", type=int, default=RETRIES, help="Retries per file on failure"
+        "--retries",
+        type=int,
+        default=None,
+        help="Retries per file on failure (default from config)",
+    )
+    parser.add_argument(
+        "--log-level",
+        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
+        default=None,
+        help="Override log level for this process",
     )
     args = parser.parse_args()
 
-    # Apply CLI overrides
-    inbox = args.inbox
-    outbox = args.outbox
-    TRANSFORM = bool(args.transform)
-    POLL = float(args.poll)
-    RETRIES = int(args.retries)
+    # 1) Base config (no log spam yet)
+    cfg = effective_config(log=False)
 
-    # Ensure dirs exist (don’t crash if removed)
-    inbox.mkdir(parents=True, exist_ok=True)
-    outbox.mkdir(parents=True, exist_ok=True)
+    # 2) Merge CLI overrides only if provided
+    merged = dict(cfg)
+    if args.inbox is not None:
+        merged["inbox"] = args.inbox
+    if args.outbox is not None:
+        merged["outbox"] = args.outbox
+    if args.retries is not None:
+        merged["retries"] = args.retries
+    if args.poll is not None:
+        merged["poll_interval"] = args.poll
+    if args.transform is not None:
+        merged["transform"] = bool(args.transform)
+    if args.log_level is not None:
+        merged["log_level"] = args.log_level
 
-    # start worker
+    # 3) Configure logging using the final level
+    configure_logging(level=merged.get("log_level", "INFO"))
+
+    # 4) Compute ensured paths + runtime knobs from merged config
+    p = resolve(merged)
+    inbox, outbox = p.inbox, p.outbox
+    TRANSFORM = bool(merged.get("transform", True))
+    POLL = float(merged.get("poll_interval", 0.5))
+    RETRIES = int(merged.get("retries", 3))
+
+    # 5) Start worker + observer
     t = threading.Thread(target=worker, daemon=True)
     t.start()
 
-    # start observer
     observer = Observer()
     handler = InboxHandler()
     observer.schedule(handler, str(inbox), recursive=False)
     observer.start()
 
     logger.info("[watcher] Watching: %s  →  writing CSVs to: %s", inbox, outbox)
+    logger.info(
+        "[watcher] Poll=%.3fs  Retries=%d  Transform=%s", POLL, RETRIES, TRANSFORM
+    )
     logger.info("[watcher] Drop .fit files into inbox/ to convert (Ctrl+C to stop).")
 
-    # Handle SIGTERM (systemd/Docker) and Ctrl+C
+    # 6) Handle SIGTERM (systemd/Docker) and Ctrl+C
     signal.signal(signal.SIGTERM, _sigterm)
     signal.signal(signal.SIGINT, _sigterm)
 

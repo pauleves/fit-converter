@@ -1,6 +1,6 @@
 [project]
 name = "fit-converter"
-version = "0.3.0"
+version = "0.4.0"
 description = "FIT → CSV converter with optional transformations and Flask interface"
 readme = "README.md"
 requires-python = ">=3.14"
