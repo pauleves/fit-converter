@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import argparse
 import logging
 import queue
-import sys
+import signal
 import threading
 import time
 from pathlib import Path
@@ -15,12 +16,23 @@ from fit_converter import paths
 from .converter import fit_to_csv
 
 logger = logging.getLogger(__name__)
-inbox = paths["inbox"]
-outbox = paths["outbox"]
+
+# Directories (overridable via CLI)
+inbox: Path = paths["inbox"]
+outbox: Path = paths["outbox"]
+
+# Runtime controls (overridable via CLI)
+_STOP = False
+_PENDING: set[Path] = set()
+_LAST_ENQUEUED: dict[Path, float] = {}
+RETRIES: int = 3
+POLL: float = 0.5
+TRANSFORM: bool = True
+DEBOUNCE_S: float = 2.0  # ignore repeat events within 2s
 
 
 # --- tiny helper: wait until a file is "stable" (size unchanged for N checks) ---
-def wait_until_stable(path: Path, timeout_s=30, poll_s=0.5) -> bool:
+def wait_until_stable(path: Path, timeout_s: float = 30.0, poll_s: float = 0.5) -> bool:
     logger.debug("Waiting for file to stabilize: %s", path)
     deadline = time.time() + timeout_s
     last_size = -1
@@ -36,70 +48,171 @@ def wait_until_stable(path: Path, timeout_s=30, poll_s=0.5) -> bool:
 
 
 # --- worker thread to serialize conversions (simple backpressure) ---
-_tasks: "queue.Queue[Path]" = queue.Queue()
+_tasks: "queue.Queue[Path | None]" = queue.Queue()
 
 
-def worker():
+def worker() -> None:
     while True:
         path = _tasks.get()
         if path is None:
+            _tasks.task_done()
             break
         try:
-            process_fit(path)
-        except Exception as e:
+            process_fit_with_retries(
+                path, retries=RETRIES, transform=TRANSFORM, poll_s=POLL
+            )
+        except Exception:
             logger.exception(
-                f"[watcher] ERROR converting {path.name}: {e}", file=sys.stderr
+                "[watcher] Unhandled error converting %s", getattr(path, "name", path)
             )
         finally:
+            _PENDING.discard(path)
             _tasks.task_done()
 
 
-def process_fit(in_path: Path):
+def process_fit(in_path: Path, *, transform: bool = True, poll_s: float = POLL) -> None:
     if not in_path.exists():
-        logger.warning(f"[watcher] Skipped (missing): {in_path}")
+        logger.warning("[watcher] Skipped (missing): %s", in_path)
         return
     if in_path.suffix.lower() != ".fit":
-        logger.warning(f"[watcher] Ignored (not .fit): {in_path.name}")
+        logger.warning("[watcher] Ignored (not .fit): %s", in_path.name)
         return
 
     # Wait for file to finish writing
-    if not wait_until_stable(in_path):
+    if not wait_until_stable(in_path, poll_s=poll_s):
         logger.warning(
-            f"[watcher] WARNING: {in_path.name} did not stabilize; attempting anyway."
+            "[watcher] WARNING: %s did not stabilize; attempting anyway.", in_path.name
         )
 
-    out_name = in_path.name + ".csv"
+    out_name = in_path.stem + ".csv"  # e.g., "activity.fit" -> "activity.csv"
     out_path = outbox / out_name
 
-    logger.info(f"[watcher] Converting → {out_path.name}")
-    rows = fit_to_csv(in_path, out_path, transform=True)
-    logger.info(f"[watcher] Done: {rows} rows → {out_path}")
+    logger.info("[watcher] Converting → %s", out_path.name)
+    rows = fit_to_csv(in_path, out_path, transform=transform)
+    logger.info("[watcher] Done: %s rows → %s", rows, out_path)
+
+
+def process_fit_with_retries(
+    in_path: Path,
+    *,
+    retries: int = 3,
+    transform: bool = True,
+    poll_s: float = POLL,
+) -> None:
+    for attempt in range(1, retries + 1):
+        try:
+            process_fit(in_path, transform=transform, poll_s=poll_s)
+            return
+        except Exception:
+            logger.exception(
+                "[watcher] Error converting %s (attempt %d/%d)",
+                in_path.name,
+                attempt,
+                retries,
+            )
+            time.sleep(1.0)
+    logger.error(
+        "[watcher] Permanent failure after %d attempts: %s", retries, in_path.name
+    )
 
 
 class InboxHandler(FileSystemEventHandler):
-    def on_created(self, event: FileSystemEvent):
+    def on_created(self, event: FileSystemEvent) -> None:
         self._handle(event)
 
-    def on_moved(self, event: FileSystemEvent):
-        # moved events have .dest_path
+    def on_moved(self, event: FileSystemEvent) -> None:
         self._handle(event, moved=True)
 
-    def on_modified(self, event: FileSystemEvent):
-        # some tools write in-place; treat as candidate but debounce will protect us
+    def on_modified(self, event: FileSystemEvent) -> None:
         self._handle(event)
 
-    def _handle(self, event: FileSystemEvent, moved: bool = False):
+    def _handle(self, event: FileSystemEvent, moved: bool = False) -> None:
         if event.is_directory:
             return
         path_str = getattr(event, "dest_path", None) if moved else event.src_path
         path = Path(path_str)
         if path.suffix.lower() != ".fit":
             return
-        # enqueue work (worker will debounce/convert)
+
+        # De-dupe if already queued/processing
+        if path in _PENDING:
+            logger.debug(
+                "[watcher] Skipping duplicate enqueue: %s (already pending)", path.name
+            )
+            return
+
+        # Debounce rapid-fire events
+        now = time.monotonic()
+        last = _LAST_ENQUEUED.get(path, 0.0)
+        if now - last < DEBOUNCE_S:
+            logger.debug(
+                "[watcher] Debounced event for %s (%.2fs < %.2fs)",
+                path.name,
+                now - last,
+                DEBOUNCE_S,
+            )
+            return
+
+        _LAST_ENQUEUED[path] = now
+        _PENDING.add(path)
         _tasks.put(path)
+        logger.debug("[watcher] Enqueued: %s", path.name)
 
 
-def main():
+def _sigterm(*_: object) -> None:
+    global _STOP
+    _STOP = True
+    logger.info("[watcher] Shutdown requested…")
+
+
+def main() -> None:
+    """
+    CLI entry point. Adds flags but keeps the existing observer/queue design intact.
+    """
+    global inbox, outbox, RETRIES, POLL, TRANSFORM
+
+    parser = argparse.ArgumentParser(
+        prog="fit-converter-watcher", description="Watch inbox/ and convert FIT→CSV"
+    )
+    parser.add_argument(
+        "--inbox",
+        type=Path,
+        default=inbox,
+        help="Directory to watch for .fit files (default from config)",
+    )
+    parser.add_argument(
+        "--outbox",
+        type=Path,
+        default=outbox,
+        help="Directory to write CSVs (default from config)",
+    )
+    parser.add_argument(
+        "--transform",
+        action=argparse.BooleanOptionalAction,
+        default=TRANSFORM,
+        help="Apply readability transforms (default: true)",
+    )
+    parser.add_argument(
+        "--poll",
+        type=float,
+        default=POLL,
+        help="Polling interval while stabilising a file (seconds)",
+    )
+    parser.add_argument(
+        "--retries", type=int, default=RETRIES, help="Retries per file on failure"
+    )
+    args = parser.parse_args()
+
+    # Apply CLI overrides
+    inbox = args.inbox
+    outbox = args.outbox
+    TRANSFORM = bool(args.transform)
+    POLL = float(args.poll)
+    RETRIES = int(args.retries)
+
+    # Ensure dirs exist (don’t crash if removed)
+    inbox.mkdir(parents=True, exist_ok=True)
+    outbox.mkdir(parents=True, exist_ok=True)
 
     # start worker
     t = threading.Thread(target=worker, daemon=True)
@@ -111,19 +224,22 @@ def main():
     observer.schedule(handler, str(inbox), recursive=False)
     observer.start()
 
-    logger.info(f"[watcher] Watching: {inbox}  →  writing CSVs to: {inbox}")
+    logger.info("[watcher] Watching: %s  →  writing CSVs to: %s", inbox, outbox)
     logger.info("[watcher] Drop .fit files into inbox/ to convert (Ctrl+C to stop).")
 
+    # Handle SIGTERM (systemd/Docker) and Ctrl+C
+    signal.signal(signal.SIGTERM, _sigterm)
+    signal.signal(signal.SIGINT, _sigterm)
+
     try:
-        while True:
+        while not _STOP:
             time.sleep(1.0)
-    except KeyboardInterrupt:
-        logger.info("\n[watcher] Stopping…")
     finally:
         observer.stop()
         observer.join()
         _tasks.put(None)  # stop worker
         _tasks.join()
+        logger.info("[watcher] Stopped.")
 
 
 if __name__ == "__main__":

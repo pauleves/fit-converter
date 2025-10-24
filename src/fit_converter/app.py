@@ -1,9 +1,11 @@
+import argparse
 import logging
+import os
 
 from flask import Flask, Response, jsonify, render_template_string, request, send_file
 from werkzeug.exceptions import HTTPException
 
-from fit_converter import paths
+from fit_converter import cfg, paths
 
 from .converter import fit_to_csv
 
@@ -74,5 +76,48 @@ def favicon_empty():
     return Response(status=204)
 
 
+def _default_host():
+    return os.getenv("FLASK_HOST", cfg.get("flask", {}).get("host", "127.0.0.1"))
+
+
+def _default_port():
+    return int(os.getenv("FLASK_PORT", cfg.get("flask", {}).get("port", 5000)))
+
+
+def _default_debug():
+    return bool(
+        int(
+            os.getenv("FLASK_DEBUG", str(int(cfg.get("flask", {}).get("debug", False))))
+        )
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="fit-converter", description="Run the FIT→CSV web UI"
+    )
+    parser.add_argument(
+        "--host", default=_default_host(), help="Bind host (default from config/env)"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=_default_port(),
+        help="Bind port (default from config/env)",
+    )
+    parser.add_argument(
+        "--debug",
+        action=argparse.BooleanOptionalAction,
+        default=_default_debug(),
+        help="Enable Flask debug",
+    )
+    args = parser.parse_args()
+
+    logger.info(
+        "Starting Flask app on %s:%s (debug=%s)", args.host, args.port, args.debug
+    )
+    app.run(host=args.host, port=args.port, debug=args.debug)
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    main()

@@ -65,3 +65,7 @@ minversion = "8.0"
 addopts = "-q"
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[project.scripts]
+fit-converter = "fit_converter.app:main"
+fit-converter-watcher = "fit_converter.watcher:main"
