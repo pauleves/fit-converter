@@ -11,4 +11,6 @@
 Convert Garmin `.FIT` files into clean, human-readable `.CSV` files.
 Includes optional data transformations, a Flask upload interface, and a headless file-watcher for automated conversions.
 
+The app reads config.toml (or falls back to config.example.toml), then config.local.toml, and finally FIT_CONVERTER_* env vars. Use config.local.toml for per-machine overrides; it’s git-ignored.
+
 [![codecov](https://codecov.io/gh/pauleves/fit-converter/branch/main/graph/badge.svg)](https://codecov.io/gh/pauleves/fit-converter)

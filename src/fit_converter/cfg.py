@@ -63,9 +63,11 @@ def _load_toml(path: Path) -> Dict[str, Any]:
     if not path.exists():
         return {}
     with path.open("rb") as f:
-        data = tomllib.load(f)
-    # If users nest keys in TOML, keep them as-is (flat keys expected by app).
-    # You can expand this to support nested structures if needed later.
+        try:
+            data = tomllib.load(f)
+        except tomllib.TOMLDecodeError as e:
+            logging.getLogger(__name__).warning("Malformed TOML %s: %s", path, e)
+            return {}
     return dict(data)
 
 
@@ -97,8 +99,13 @@ def load_config() -> Dict[str, Any]:
     """
     cfg: Dict[str, Any] = _DEFAULTS.copy()
 
-    # 2) Global config file
-    cfg.update(_load_toml(Path("config.toml")))
+    # 2) Global config file or fallback of example file.
+    main = Path("config.toml")
+    example = Path("config.example.toml")
+    if main.exists():
+        cfg.update(_load_toml(main))
+    elif example.exists():
+        cfg.update(_load_toml(example))
 
     # 3) Local developer overrides (ignored if absent)
     cfg.update(_load_toml(Path("config.local.toml")))
