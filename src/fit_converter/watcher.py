@@ -15,7 +15,7 @@ from fit_converter.cfg import effective_config
 from fit_converter.logging_setup import configure_logging  # if not already present
 from fit_converter.paths import INBOX, OUTBOX, resolve
 
-from .converter import fit_to_csv
+from .converter import ConversionError, fit_to_csv
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +105,14 @@ def process_fit_with_retries(
         try:
             process_fit(in_path, transform=transform, poll_s=poll_s)
             return
+        except ConversionError as e:
+            # Expected user/data error (e.g., corrupt FIT): don't retry
+            logger.warning(
+                "[watcher] No-retry conversion failure for %s: %s",
+                in_path.name,
+                e,
+            )
+            break
         except Exception:
             logger.exception(
                 "[watcher] Error converting %s (attempt %d/%d)",
@@ -112,7 +120,8 @@ def process_fit_with_retries(
                 attempt,
                 retries,
             )
-            time.sleep(1.0)
+            # light backoff before retrying unexpected/system errors
+            time.sleep(min(1.0, 0.25 * attempt))
     logger.error(
         "[watcher] Permanent failure after %d attempts: %s", retries, in_path.name
     )

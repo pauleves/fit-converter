@@ -10,7 +10,7 @@ from fit_converter import paths
 from fit_converter.cfg import effective_config
 from fit_converter.logging_setup import configure_logging
 
-from .converter import fit_to_csv
+from .converter import ConversionError, fit_to_csv
 
 # --- Bootstrap: config → logging → log effective config ---
 _cfg = effective_config(log=False)
@@ -24,6 +24,13 @@ app = Flask(__name__)
 # -------------------------
 # Error handlers
 # -------------------------
+@app.errorhandler(ConversionError)
+def handle_conversion_error(e: ConversionError):
+    # Expected, user-facing error (bad/corrupted FIT, etc.)
+    logger.warning("ConversionError: %s", e)
+    return jsonify(error=str(e)), 400
+
+
 @app.errorhandler(HTTPException)
 def handle_http_exc(e: HTTPException):
     level = logging.WARNING if 400 <= e.code < 500 else logging.ERROR
