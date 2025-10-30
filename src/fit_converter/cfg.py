@@ -44,10 +44,16 @@ _DEFAULTS: Dict[str, Any] = {
     "inbox": "inbox",
     "outbox": "outbox",
     "logs_dir": "logs",
-    "log_level": "INFO",  # "CRITICAL" | "ERROR" | "WARNING" | "INFO" | "DEBUG"
-    "transform": True,  # default behaviour for readability transforms
-    "poll_interval": 0.5,  # watcher polling cadence (seconds)
-    "retries": 3,  # watcher retry attempts on failure
+    "transform": True,
+    "poll_interval": 0.5,
+    "retries": 3,
+    "logging": {
+        "level": "INFO",
+        "to_file": True,
+        "file_path": None,  # will be derived if missing
+        "rotate_max_bytes": 1_000_000,
+        "backup_count": 5,
+    },
 }
 
 
@@ -83,6 +89,27 @@ def _coerce_type(value: str, reference: Any) -> Any:
     if isinstance(reference, float):
         return float(value)
     return value
+
+
+def _postprocess_effective(cfg: dict) -> dict:
+    log_cfg = cfg.get("logging", {})
+    if not log_cfg.get("file_path"):
+        from pathlib import Path
+
+        log_cfg["file_path"] = str(
+            Path(cfg.get("logs_dir", "logs")) / "fit-converter.log"
+        )
+    cfg["logging"] = log_cfg
+    return cfg
+
+
+def _finalize_logging(cfg: Dict[str, Any]) -> None:
+    """Ensure logging.file_path is set, deriving from logs_dir if missing/None."""
+    log = cfg.get("logging") or {}
+    if log.get("file_path") in (None, ""):
+        logs_dir = cfg.get("logs_dir", "logs")
+        log["file_path"] = str(Path(logs_dir) / "fit-converter.log")
+    cfg["logging"] = log
 
 
 # ----------------------------
@@ -129,7 +156,7 @@ def effective_config(*, log: bool = True) -> Dict[str, Any]:
     Callers may apply CLI-flag overrides on top of this result.
     """
     cfg = load_config()
-
+    _finalize_logging(cfg)
     if log:
         logger = logging.getLogger(__name__)
         logger.info("[cfg] Effective configuration:")

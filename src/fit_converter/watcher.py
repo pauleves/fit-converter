@@ -6,6 +6,7 @@ import queue
 import signal
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
@@ -182,46 +183,7 @@ def main() -> None:
     """
     global inbox, outbox, RETRIES, POLL, TRANSFORM
 
-    parser = argparse.ArgumentParser(
-        prog="fit-converter-watcher", description="Watch inbox/ and convert FIT→CSV"
-    )
-    # CLI only overrides when provided; config supplies defaults
-    parser.add_argument(
-        "--inbox",
-        type=Path,
-        default=None,
-        help="Directory to watch for .fit files (default from config)",
-    )
-    parser.add_argument(
-        "--outbox",
-        type=Path,
-        default=None,
-        help="Directory to write CSVs (default from config)",
-    )
-    parser.add_argument(
-        "--transform",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Apply readability transforms (default from config)",
-    )
-    parser.add_argument(
-        "--poll",
-        type=float,
-        default=None,
-        help="Polling interval while stabilising a file (seconds; default from config)",
-    )
-    parser.add_argument(
-        "--retries",
-        type=int,
-        default=None,
-        help="Retries per file on failure (default from config)",
-    )
-    parser.add_argument(
-        "--log-level",
-        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
-        default=None,
-        help="Override log level for this process",
-    )
+    parser = build_parser()
     args = parser.parse_args()
 
     # 1) Base config (no log spam yet)
@@ -229,6 +191,8 @@ def main() -> None:
 
     # 2) Merge CLI overrides only if provided
     merged = dict(cfg)
+    merged["logging"] = dict(cfg.get("logging", {}))  # make a shallow copy
+
     if args.inbox is not None:
         merged["inbox"] = args.inbox
     if args.outbox is not None:
@@ -240,10 +204,11 @@ def main() -> None:
     if args.transform is not None:
         merged["transform"] = bool(args.transform)
     if args.log_level is not None:
-        merged["log_level"] = args.log_level
+        # CLI wins for this process
+        merged["logging"]["level"] = args.log_level
 
-    # 3) Configure logging using the final level
-    configure_logging(level=merged.get("log_level", "INFO"))
+    # 3) Configure logging using the TOML-shaped block
+    configure_logging(**merged["logging"])
 
     # 4) Compute ensured paths + runtime knobs from merged config
     p = resolve(merged)
@@ -253,6 +218,8 @@ def main() -> None:
     RETRIES = int(merged.get("retries", 3))
 
     # 5) Start worker + observer
+    _banner_watcher(merged, logger)
+    _logging_diag(logger)  # optional: quick visibility of handlers
     t = threading.Thread(target=worker, daemon=True)
     t.start()
 
@@ -260,7 +227,6 @@ def main() -> None:
     handler = InboxHandler()
     observer.schedule(handler, str(inbox), recursive=False)
     observer.start()
-
     logger.info("[watcher] Watching: %s  →  writing CSVs to: %s", inbox, outbox)
     logger.info(
         "[watcher] Poll=%.3fs  Retries=%d  Transform=%s", POLL, RETRIES, TRANSFORM
@@ -280,6 +246,103 @@ def main() -> None:
         _tasks.put(None)  # stop worker
         _tasks.join()
         logger.info("[watcher] Stopped.")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="fit-converter-watcher",
+        description="Watch inbox/ and convert FIT→CSV",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  # Use config-defined inbox/outbox and defaults\n"
+            "  fit-converter-watcher\n\n"
+            "  # Override paths\n"
+            "  fit-converter-watcher --inbox ./inbox --outbox ./outbox\n\n"
+            "  # Tweak stability polling and retries\n"
+            "  fit-converter-watcher --poll 0.5 --retries 2\n\n"
+            "  # Force transforms on (overrides config for this run)\n"
+            "  fit-converter-watcher --transform\n"
+        ),
+    )
+
+    # Paths
+    g_paths = parser.add_argument_group("Paths")
+    g_paths.add_argument(
+        "--inbox",
+        type=Path,
+        default=None,
+        help="Directory to watch for .fit files (default from config)",
+    )
+    g_paths.add_argument(
+        "--outbox",
+        type=Path,
+        default=None,
+        help="Directory to write CSVs (default from config)",
+    )
+
+    # Behavior
+    g_beh = parser.add_argument_group("Behavior")
+    g_beh.add_argument(
+        "--transform",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Apply readability transforms (default from config)",
+    )
+    g_beh.add_argument(
+        "--poll",
+        type=float,
+        default=None,
+        help="Polling interval while stabilising a file (seconds; default from config)",
+    )
+
+    # Reliability & Logging
+    g_rel = parser.add_argument_group("Reliability & Logging")
+    g_rel.add_argument(
+        "--retries",
+        type=int,
+        default=None,
+        help="Retries per file on failure (default from config)",
+    )
+    g_rel.add_argument(
+        "--log-level",
+        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
+        default=None,
+        help="Override log level for this process",
+    )
+
+    return parser
+
+
+def _banner_watcher(cfg, logger):
+    """Log runtime settings for the watcher process."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    logger.info("┌─ FIT→CSV — Watcher")
+    logger.info("│ time: %s", now)
+    logger.info("│ inbox: %s", cfg.get('inbox'))
+    logger.info("│ outbox: %s", cfg.get('outbox'))
+    logger.info("│ poll_interval: %ss", cfg.get('poll_interval', 0.5))
+    logger.info("│ retries: %s", cfg.get('retries', 3))
+    logger.info("│ transform: %s", cfg.get('transform', True))
+    logger.info("│ log-level: %s", cfg.get('logging', {}).get('level', 'INFO'))
+    cfg_path = cfg.get('config_path')
+    if cfg_path:
+        logger.info("│ config: %s", cfg_path)
+    logger.info("└────────────────────")
+
+
+def _logging_diag(logger):
+    logger.info("┌─ logging diag for %s", logger.name)
+    logger.info("│ logger.level: %s", logging.getLevelName(logger.level))
+    root = logging.getLogger()
+    logger.info("│ root.level: %s", logging.getLevelName(root.level))
+    logger.info("│ root.handlers: %d", len(root.handlers))
+    for i, h in enumerate(root.handlers):
+        h_cls = type(h).__name__
+        h_lvl = logging.getLevelName(getattr(h, "level", logging.NOTSET))
+        dest = getattr(h, "baseFilename", None) or getattr(h, "stream", None)
+        logger.info("│  #%d %s level=%s dest=%s", i, h_cls, h_lvl, dest)
+    logger.info("└────────────")
 
 
 if __name__ == "__main__":

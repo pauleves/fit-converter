@@ -7,7 +7,7 @@ from textwrap import dedent
 
 import pytest
 
-from fit_converter.cfg import load_config
+from fit_converter.cfg import effective_config, load_config
 
 
 @pytest.fixture(autouse=True)
@@ -24,13 +24,25 @@ def write(p: Path, content: str):
 
 def test_defaults_only(monkeypatch, tmp_path: Path):
     monkeypatch.chdir(tmp_path)
-    cfg = load_config()
+    cfg = effective_config(log=False)
+
     assert cfg["inbox"] == "inbox"
     assert cfg["outbox"] == "outbox"
-    assert cfg["log_level"] == "INFO"
     assert cfg["transform"] is True
     assert cfg["poll_interval"] == 0.5
     assert cfg["retries"] == 3
+
+    assert "log_level" not in cfg
+
+    log = cfg["logging"]
+    assert log["level"] == "INFO"
+    assert log["to_file"] is True
+    assert isinstance(log["rotate_max_bytes"], int) and log["rotate_max_bytes"] > 0
+    assert isinstance(log["backup_count"], int) and log["backup_count"] > 0
+
+    # Derived file_path should use logs_dir
+    expected = str(Path(cfg["logs_dir"]) / "fit-converter.log")
+    assert log["file_path"] == expected
 
 
 def test_example_fallback(monkeypatch, tmp_path: Path):

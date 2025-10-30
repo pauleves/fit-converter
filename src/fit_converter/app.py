@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+from datetime import datetime
 
 from flask import Flask, Response, jsonify, render_template_string, request, send_file
 from werkzeug.exceptions import HTTPException
@@ -14,7 +15,8 @@ from .converter import ConversionError, fit_to_csv
 
 # --- Bootstrap: config → logging → log effective config ---
 _cfg = effective_config(log=False)
-configure_logging(level=_cfg.get("log_level", "INFO"))
+_log_cfg = _cfg["logging"]
+configure_logging(**_log_cfg)
 config = effective_config(log=True)
 
 logger = logging.getLogger(__name__)
@@ -132,23 +134,58 @@ def _default_debug():
 # Entrypoint
 # -------------------------
 def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+
+    logger.info(
+        "Starting Flask app on %s:%s (debug=%s)", args.host, args.port, args.debug
+    )
+    _banner_app(config, args.host, args.port, args.debug, logger)
+    app.run(host=args.host, port=args.port, debug=args.debug)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    # Safe fallback for optional helper
+    _default_debug_fn = globals().get("_default_debug")
+    debug_default = _default_debug_fn() if callable(_default_debug_fn) else False
+
     parser = argparse.ArgumentParser(
-        prog="fit-converter", description="Run the FIT→CSV web UI"
+        prog="fit-converter",
+        description="Run the FIT→CSV web UI",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  # Start on defaults\n"
+            '  fit-converter\n\n'
+            "  # Bind to all interfaces on port 8080\n"
+            "  fit-converter --host 0.0.0.0 --port 8080\n\n"
+            "  # Enable Flask debug/reloader\n"
+            "  fit-converter --debug\n"
+        ),
     )
     parser.add_argument("--host", default=_default_host(), help="Bind host")
     parser.add_argument("--port", type=int, default=_default_port(), help="Bind port")
     parser.add_argument(
         "--debug",
         action=argparse.BooleanOptionalAction,
-        default=_default_debug(),
+        default=debug_default,
         help="Enable Flask debug / reloader",
     )
-    args = parser.parse_args()
+    return parser
 
-    logger.info(
-        "Starting Flask app on %s:%s (debug=%s)", args.host, args.port, args.debug
-    )
-    app.run(host=args.host, port=args.port, debug=args.debug)
+
+def _banner_app(cfg, host, port, debug, logger):
+    """Log a concise startup summary for the web UI."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    logger.info("┌─ FIT→CSV — Web UI")
+    logger.info("│ time: %s", now)
+    logger.info("│ host: %s", host)
+    logger.info("│ port: %s", port)
+    logger.info("│ debug: %s", debug)
+    cfg_path = cfg.get("config_path") if isinstance(cfg, dict) else None
+    if cfg_path:
+        logger.info("│ config: %s", cfg_path)
+    logger.info("└────────────────────────")
 
 
 if __name__ == "__main__":
