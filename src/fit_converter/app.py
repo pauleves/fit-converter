@@ -76,7 +76,7 @@ def healthz():
 @app.get("/")
 def index():
     return render_template(
-        "upload.html", transform_default=config.get("transform", True)
+        "upload.html", transform_default=config["converter"]["transform_default"]
     )
 
 

@@ -21,7 +21,7 @@
       {% if msgs %}
         <div class="alerts">
           {% for cat, msg in msgs %}
-            <div class="alert {{ cat }}">{{ msg }}</div>
+            <div class="alert {{ cat }}">{{ msg|safe}}</div>
           {% endfor %}
         </div>
       {% endif %}
