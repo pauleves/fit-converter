@@ -122,7 +122,7 @@ def upload_file():
                 "success",
             )
         else:
-            flash(f"❌ {inbox_path.name} — {report.message}", "error")
+            flash(f"{report.message}", "error")
     except NotImplementedError:
         flash("⚠️ Conversion not yet implemented.", "error")
     except Exception:
