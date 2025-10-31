@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 
 import fit_converter.watcher as w
-from fit_converter.converter import ConversionError
+
+# from fit_converter.converter import ConversionError, ConversionReport
 
 
 def _start_worker():
@@ -54,17 +55,29 @@ def _isolate_globals(monkeypatch, tmp_path: Path):
     yield
 
 
-def test_retry_then_success(monkeypatch, tmp_path: Path):
-    calls = {"n": 0}
+def test_retry_then_success(monkeypatch, tmp_path: Path, fake_convert_factory):
 
-    def fake_convert(in_path: Path, out_path: Path, *, transform: bool = True):
-        calls["n"] += 1
-        if calls["n"] == 1:
+    attempt = {"first": True}
+
+    # Create fake convert function that fails first then succeeds
+    fake, calls = fake_convert_factory(
+        ok=True, rows=1, seconds=0.0, message="dummy success"
+    )
+
+    # Wrap the fake so that the first call still fails
+    def fake_with_failure(
+        in_path, out_path, *, transform=True, logger=None, quiet_logs=False
+    ):
+        if attempt["first"]:
+            calls["n"] += 1
+            attempt["first"] = False
             raise RuntimeError("temporary failure")
-        out_path.write_text("csv\n")
-        return 1
+        # After first attempt, call the normal fake behavior
+        return fake(
+            in_path, out_path, transform=transform, logger=logger, quiet_logs=quiet_logs
+        )
 
-    monkeypatch.setattr(w, "fit_to_csv", fake_convert)
+    monkeypatch.setattr(w, "convert_with_report", fake_with_failure)
 
     f = w.inbox / "run.fit"
     f.write_bytes(b"fakefit")
@@ -78,14 +91,9 @@ def test_retry_then_success(monkeypatch, tmp_path: Path):
     assert calls["n"] == 2
 
 
-def test_conversion_error_no_retry(monkeypatch, tmp_path: Path):
-    calls = {"n": 0}
-
-    def fake_convert(in_path: Path, out_path: Path, *, transform: bool = True):
-        calls["n"] += 1
-        raise ConversionError("corrupt FIT")
-
-    monkeypatch.setattr(w, "fit_to_csv", fake_convert)
+def test_conversion_error_no_retry(monkeypatch, tmp_path: Path, fake_convert_factory):
+    fake, calls = fake_convert_factory(ok=False, message="corrupt FIT")
+    monkeypatch.setattr(w, "convert_with_report", fake)
 
     f = w.inbox / "bad.fit"
     f.write_bytes(b"xxxx")
@@ -99,15 +107,12 @@ def test_conversion_error_no_retry(monkeypatch, tmp_path: Path):
     assert calls["n"] == 1
 
 
-def test_debounce_enqueues_once(monkeypatch, tmp_path: Path):
-    calls = {"n": 0}
+def test_debounce_enqueues_once(monkeypatch, tmp_path: Path, fake_convert_factory):
+    fake, calls = fake_convert_factory(
+        ok=True, rows=2104, seconds=2.06, message="success"
+    )
 
-    def fake_convert(in_path: Path, out_path: Path, *, transform: bool = True):
-        calls["n"] += 1
-        out_path.write_text("ok\n")
-        return 1
-
-    monkeypatch.setattr(w, "fit_to_csv", fake_convert)
+    monkeypatch.setattr(w, "convert_with_report", fake)
 
     f = w.inbox / "burst.fit"
     f.write_bytes(b"123")
@@ -128,3 +133,27 @@ def test_debounce_enqueues_once(monkeypatch, tmp_path: Path):
 
     assert (w.outbox / "burst.csv").exists()
     assert calls["n"] == 1
+
+
+def test_generic_failure_all_retries(monkeypatch, tmp_path: Path, fake_convert_factory):
+    fake, calls = fake_convert_factory(ok=False, message="generic error")
+
+    # Wrap without returning a ConversionReport — just raise generic Exception
+    def fake_always_fail(
+        in_path, out_path, *, transform=True, logger=None, quiet_logs=False
+    ):
+        calls["n"] += 1
+        raise RuntimeError("system failure")
+
+    monkeypatch.setattr(w, "convert_with_report", fake_always_fail)
+
+    f = w.inbox / "failme.fit"
+    f.write_bytes(b"fake data")
+
+    t = _start_worker()
+    w._tasks.put(f)
+    w._tasks.join()
+    _stop_worker(t)
+
+    assert not (w.outbox / "failme.csv").exists()
+    assert calls["n"] == w.RETRIES  # i.e., 3

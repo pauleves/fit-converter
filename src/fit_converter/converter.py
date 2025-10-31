@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import logging
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -12,6 +14,22 @@ logger = logging.getLogger(__name__)
 
 class ConversionError(Exception):
     """Raised when a FIT→CSV conversion fails in a recoverable way."""
+
+
+_HUMAN_ERROR_MAP = {
+    "truncated": "file appears truncated",
+    "crc": "file failed CRC check (corrupted data)",
+    "unsupported_profile": "FIT profile not supported",
+    "decode": "could not decode FIT stream",
+}
+
+
+def _humanise_conversion_error(exc: Exception) -> str:
+    t = str(exc).lower()
+    for k, msg in _HUMAN_ERROR_MAP.items():
+        if k in t:
+            return msg
+    return "could not convert file"
 
 
 def _to_spm(cadence: float | int | None) -> float | None:
@@ -48,6 +66,53 @@ def _pace_mmss_from_mps(speed_mps):
         m += 1
         s = 0
     return f"{m:02d}:{s:02d}"
+
+
+@dataclass
+class ConversionReport:
+    ok: bool
+    rows: int | None
+    seconds: float | None
+    message: str  # success summary or human error text
+
+
+def convert_with_report(
+    in_path: Path,
+    out_path: Path,
+    *,
+    transform: bool,
+    logger: logging.Logger = None,
+    count_rows_if_missing: bool = True,
+    quiet_logs: bool = False,
+) -> ConversionReport:
+    """
+    Wrap fit_to_csv with timing + friendly logging.
+    Returns a report so callers can also surface status in UI if needed.
+    """
+    try:
+        t0 = time.perf_counter()
+        rows = fit_to_csv(in_path, out_path, transform=transform)
+        dt = time.perf_counter() - t0
+
+        # If fit_to_csv doesn't return a count, optionally derive it
+        if rows is None and count_rows_if_missing:
+            try:
+                # subtract header
+                with open(out_path, "r", encoding="utf-8", newline="") as f:
+                    rows = max(0, sum(1 for _ in f) - 1)
+            except Exception:
+                rows = None
+
+        msg = f"✅ converted: {in_path.name} → {out_path.name} ({rows if rows is not None else '?'} rows, {dt:.2f} s)"
+        if not quiet_logs:
+            logger.info(msg)
+        return ConversionReport(ok=True, rows=rows, seconds=dt, message=msg)
+
+    except ConversionError as e:
+        msg = f"❌ {in_path.name} — {_humanise_conversion_error(e)}"
+        if not quiet_logs:
+            logger.error(msg)
+        return ConversionReport(ok=False, rows=None, seconds=None, message=msg)
 
 
 def fit_to_csv(

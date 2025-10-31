@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}FIT→CSV{% endblock %}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; line-height:1.45; }
+    .container { max-width: 720px; }
+    .alerts { margin: .75rem 0 1rem; }
+    .alert { padding:.6rem .8rem; border-radius:.4rem; border:1px solid transparent; }
+    .alert.success { background:#e7f6e7; border-color:#b4e0b4; }
+    .alert.error   { background:#fdeaea; border-color:#f1b0b0; }
+    button { padding:.5rem .8rem; border-radius:.4rem; border:1px solid #ccc; cursor:pointer; }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="container">
+    {% with msgs = get_flashed_messages(with_categories=True) %}
+      {% if msgs %}
+        <div class="alerts">
+          {% for cat, msg in msgs %}
+            <div class="alert {{ cat }}">{{ msg }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

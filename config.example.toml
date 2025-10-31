@@ -1,5 +1,5 @@
 [logging]
-level = "INFO"
+level = "DEBUG"
 to_file = true
 file_path = "logs/fit-converter.log"
 rotate_max_bytes = 1000000
@@ -11,3 +11,9 @@ transform_default = true
 [paths]
 inbox = "inbox/"
 outbox = "outbox/"
+
+[flask]
+secret_key = "2fdbafc8a4e84d1d2c66518a4e3ce3e9a9bfbdf46407fdf76b18efc3135b47c0"
+
+# generate a secret key
+#  python -c "import secrets; print(secrets.token_hex(32))"

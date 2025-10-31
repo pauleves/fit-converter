@@ -12,11 +12,10 @@ from pathlib import Path
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from fit_converter.cfg import effective_config
-from fit_converter.logging_setup import configure_logging  # if not already present
-from fit_converter.paths import INBOX, OUTBOX, resolve
-
-from .converter import ConversionError, fit_to_csv
+from .cfg import effective_config
+from .converter import ConversionError, convert_with_report
+from .logging_setup import configure_logging  # if not already present
+from .paths import INBOX, OUTBOX, resolve
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +90,17 @@ def process_fit(in_path: Path, *, transform: bool = True, poll_s: float = POLL) 
     out_path = outbox / out_name
 
     logger.info("[watcher] Converting → %s", out_path.name)
-    rows = fit_to_csv(in_path, out_path, transform=transform)
-    logger.info("[watcher] Done: %s rows → %s", rows, out_path)
+    report = convert_with_report(
+        in_path,
+        out_path,
+        transform=transform,
+        logger=logger,
+    )
+
+    if report.ok:
+        logger.debug("[watcher] Done: %s rows → %s", report.rows, out_path)
+    else:
+        logger.debug("[watcher] Failed: %s", report.message)
 
 
 def process_fit_with_retries(
@@ -219,7 +227,9 @@ def main() -> None:
 
     # 5) Start worker + observer
     _banner_watcher(merged, logger)
-    _logging_diag(logger)  # optional: quick visibility of handlers
+    if args.log_level == "DEBUG":
+        # Show additional logger info
+        _logging_diag(logger)
     t = threading.Thread(target=worker, daemon=True)
     t.start()
 

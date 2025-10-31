@@ -2,8 +2,19 @@ import argparse
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 
-from flask import Flask, Response, jsonify, render_template_string, request, send_file
+from flask import (
+    Flask,
+    Response,
+    flash,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
@@ -11,7 +22,7 @@ from fit_converter import paths
 from fit_converter.cfg import effective_config
 from fit_converter.logging_setup import configure_logging
 
-from .converter import ConversionError, fit_to_csv
+from .converter import ConversionError, convert_with_report
 
 # --- Bootstrap: config → logging → log effective config ---
 _cfg = effective_config(log=False)
@@ -20,7 +31,13 @@ configure_logging(**_log_cfg)
 config = effective_config(log=True)
 
 logger = logging.getLogger(__name__)
+paths.warn_if_running_inside_src(logger)
 app = Flask(__name__)
+app.secret_key = (
+    os.environ.get("FLASK_SECRET_KEY")
+    or (config.get("flask") or {}).get("secret_key")
+    or "dev-not-secret"
+)
 
 
 # -------------------------
@@ -54,22 +71,12 @@ def healthz():
 # -------------------------
 # UI
 # -------------------------
+
+
 @app.get("/")
-def upload_form():
-    checked_attr = "checked" if config.get("transform", True) else ""
-    return render_template_string(
-        """
-        <h1>Upload a FIT file</h1>
-        <form action="/upload" method="post" enctype="multipart/form-data">
-            <input type="file" name="fitfile" accept=".fit" required>
-            <label style="display:block;margin-top:8px">
-                <input type="checkbox" name="transform" {{ checked }}>
-                Transform for readability (pace mm:ss, SPM, degrees)
-            </label>
-            <button type="submit" style="margin-top:8px">Upload & Convert</button>
-        </form>
-        """,
-        checked=checked_attr,
+def index():
+    return render_template(
+        "upload.html", transform_default=config.get("transform", True)
     )
 
 
@@ -79,35 +86,59 @@ def upload_form():
 @app.post("/upload")
 def upload_file():
     if "fitfile" not in request.files:
-        return jsonify(error="No file part named 'fitfile'."), 400
+        flash("❌ No file part named 'fitfile'.", "error")
+        return redirect(url_for("index"))
     uploaded = request.files["fitfile"]
     if not uploaded or uploaded.filename == "":
-        return jsonify(error="No file selected."), 400
+        flash("❌ No file selected.", "error")
+        return redirect(url_for("index"))
 
-    filename = secure_filename(uploaded.filename)
-    inbox_path = paths.INBOX / filename
-    out_path = paths.OUTBOX / (filename + ".csv")
+    safe_name = secure_filename(uploaded.filename)
+    inbox_path = paths.INBOX / safe_name
+    out_name = Path(safe_name).with_suffix(".csv").name
+    out_path = paths.OUTBOX / out_name
 
     try:
         uploaded.save(inbox_path)
     except Exception:
         logger.exception("Failed to save uploaded file: %s", inbox_path)
-        return jsonify(error="Could not save uploaded file."), 500
+        flash("❌ Could not save uploaded file.", "error")
+        return redirect(url_for("index"))
 
     try:
         do_transform = "transform" in request.form
-        fit_to_csv(inbox_path, out_path, transform=do_transform)
+        report = convert_with_report(
+            inbox_path,
+            out_path,
+            transform=do_transform,
+            logger=logger,
+            quiet_logs=True,
+        )
+        if report.ok:
+            flash(
+                f"✅ Converted {inbox_path.name} → {out_path.name} "
+                f"({report.rows or '?'} rows, {report.seconds:.2f}s) — "
+                f"<a href='{url_for('download_csv', filename=out_name)}'>Download CSV</a>",
+                "success",
+            )
+        else:
+            flash(f"❌ {inbox_path.name} — {report.message}", "error")
     except NotImplementedError:
-        return "<p>Conversion not yet implemented.</p>", 501
+        flash("⚠️ Conversion not yet implemented.", "error")
     except Exception:
         logger.exception("Conversion failed for: %s", inbox_path)
-        return jsonify(error="Conversion failed."), 500
+        flash("❌ Conversion failed.", "error")
 
-    try:
-        return send_file(out_path, as_attachment=True, download_name=out_path.name)
-    except Exception:
-        logger.exception("Failed to send converted file: %s", out_path)
-        return jsonify(error="Could not return converted file."), 500
+    return redirect(url_for("index"))
+
+
+@app.get("/download/<path:filename>")
+def download_csv(filename):
+    out_path = paths.OUTBOX / filename
+    if not out_path.exists():
+        flash("❌ File not found.", "error")
+        return redirect(url_for("index"))
+    return send_file(out_path, as_attachment=True, download_name=out_path.name)
 
 
 @app.route("/favicon.ico")

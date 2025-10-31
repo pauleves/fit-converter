@@ -1,6 +1,7 @@
 # src/fit_converter/paths.py
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -33,6 +34,20 @@ def resolve(cfg: Mapping[str, Any] | None = None) -> Paths:
     outbox = _resolve_dir(c.get("outbox", "outbox"))
     logs_dir = _resolve_dir(c.get("logs_dir", "logs"))
     return Paths(inbox=inbox, outbox=outbox, logs_dir=logs_dir)
+
+
+def warn_if_running_inside_src(logger: logging.Logger | None = None) -> None:
+    """
+    Emit a warning if the current working directory is inside 'src/',
+    since that can cause inbox/outbox/log paths to resolve there.
+    """
+    cwd = Path.cwd().resolve()
+    if cwd.name == "src":
+        (logger or logging.getLogger(__name__)).warning(
+            "⚠️  Working directory is '%s'. "
+            "Run from the project root (one level up) to ensure consistent paths.",
+            cwd,
+        )
 
 
 # Module-level convenience based on current effective config

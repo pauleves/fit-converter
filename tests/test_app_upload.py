@@ -20,18 +20,18 @@ def client(monkeypatch, tmp_path):
     return app.test_client()
 
 
-def test_upload_happy_path(monkeypatch, client, tmp_path):
-    def fake_convert(in_path, out_path, *, transform=True):
-        out_path.write_text("csv")
-
-    monkeypatch.setattr(appmod, "fit_to_csv", fake_convert)
+def test_upload_happy_path(monkeypatch, client, tmp_path, fake_convert_factory):
+    fake, calls = fake_convert_factory(
+        ok=True, rows=2104, seconds=2.06, message="converted"
+    )
+    monkeypatch.setattr(appmod, "convert_with_report", fake)
 
     data = {"fitfile": (io.BytesIO(b"fakefit"), "file.fit"), "transform": "on"}
     resp = client.post("/upload", data=data, content_type="multipart/form-data")
-    assert resp.status_code == 200
-    assert resp.headers["Content-Disposition"].startswith("attachment;")
+    assert resp.status_code == 302
+    assert "Location" in resp.headers
 
 
 def test_upload_missing_file(client):
     resp = client.post("/upload", data={}, content_type="multipart/form-data")
-    assert resp.status_code == 400
+    assert resp.status_code == 302
