@@ -12,16 +12,18 @@ from pathlib import Path
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
+from . import __version__
 from .cfg import effective_config
 from .converter import ConversionError, convert_with_report
-from .logging_setup import configure_logging  # if not already present
-from .paths import INBOX, OUTBOX, resolve
+from .logging_setup import configure_logging, get_logger
+from .paths import resolve
 
 logger = logging.getLogger(__name__)
 
-# Directories (overridable via CLI)
-inbox: Path = INBOX
-outbox: Path = OUTBOX
+
+# Directories (set in main() after config/logging)
+inbox: Path
+outbox: Path
 
 # Runtime controls (overridable via CLI)
 _STOP = False
@@ -194,7 +196,7 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    # 1) Base config (no log spam yet)
+    # 1) Load base config once (no logging yet)
     cfg = effective_config(log=False)
 
     # 2) Merge CLI overrides only if provided
@@ -215,11 +217,22 @@ def main() -> None:
         # CLI wins for this process
         merged["logging"]["level"] = args.log_level
 
-    # 3) Configure logging using the TOML-shaped block
+    # 3) Configure logging once (writes to <logs_dir>/fit-converter.log)
     configure_logging(**merged["logging"])
+    global logger
+    logger = get_logger("fit_converter.watcher")
 
     # 4) Compute ensured paths + runtime knobs from merged config
-    p = resolve(merged)
+    #    Allow data_dir/state_dir/inbox/outbox/logs_dir overrides via merged config.
+    p = resolve(
+        {
+            "data_dir": merged.get("data_dir"),
+            # "state_dir": merged.get("state_dir"),  # internal, keep hidden unless you expose it
+            "inbox": merged.get("inbox"),
+            "outbox": merged.get("outbox"),
+            "logs_dir": merged.get("logs_dir"),
+        }
+    )
     inbox, outbox = p.inbox, p.outbox
     TRANSFORM = bool(merged.get("transform", True))
     POLL = float(merged.get("poll_interval", 0.5))
@@ -319,6 +332,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
         default=None,
         help="Override log level for this process",
+    ),
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
 
     return parser

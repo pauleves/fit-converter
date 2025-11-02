@@ -4,9 +4,12 @@ from __future__ import annotations
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Literal, Optional, TypedDict
+from typing import Literal, TypedDict
+
+from fit_converter.paths import ensure_dirs
 
 Level = Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
+LOG_FILENAME = "fit-converter.log"
 
 _LEVELS = {
     "CRITICAL": logging.CRITICAL,
@@ -21,7 +24,6 @@ _CONFIGURED = False  # guard against duplicate handlers
 class LoggingConfig(TypedDict, total=False):
     level: Level
     to_file: bool
-    file_path: Optional[str]
     rotate_max_bytes: int
     backup_count: int
 
@@ -30,33 +32,26 @@ def configure_logging(
     *,
     level: Level,
     to_file: bool,
-    file_path: Optional[str],
     rotate_max_bytes: int,
     backup_count: int,
     force: bool = False,
 ) -> None:
     """
-    Configure root logging once. Safe to call multiple times:
-    - If already configured, we still update the level and attach any missing handlers
-      (e.g., late-provided file handler).
-    - Use force=True to rebuild handlers from scratch.
+    Configure root logging once.
+    Console is always attached; file handler writes to <logs_dir>/fit-converter.log
+    when to_file=True.
     """
-    if to_file and not file_path:
-        raise ValueError("to_file=True requires a non-empty logging.file_path")
-
     global _CONFIGURED
     root = logging.getLogger()
 
-    # Always normalize level
+    # Normalise level
     lvl = _LEVELS.get(str(level).upper(), logging.INFO)
     root.setLevel(lvl)
 
-    # If already configured and not forcing, ensure required handlers exist and align levels
     if _CONFIGURED and not force:
-        # Align existing handler levels and formatter
         for h in root.handlers:
             h.setLevel(lvl)
-        # Ensure console handler exists
+        # ensure console exists
         if not any(
             isinstance(h, logging.StreamHandler) and not hasattr(h, "baseFilename")
             for h in root.handlers
@@ -70,13 +65,11 @@ def configure_logging(
                 )
             )
             root.addHandler(ch)
-        # Ensure file handler exists if requested and path provided (idempotent upgrade)
-        if (
-            to_file
-            and file_path
-            and not any(isinstance(h, RotatingFileHandler) for h in root.handlers)
+        # ensure file exists if requested
+        if to_file and not any(
+            isinstance(h, RotatingFileHandler) for h in root.handlers
         ):
-            p = Path(file_path)
+            p = Path(ensure_dirs().logs_dir) / LOG_FILENAME
             p.parent.mkdir(parents=True, exist_ok=True)
             fh = RotatingFileHandler(
                 p,
@@ -93,34 +86,33 @@ def configure_logging(
                 )
             )
             root.addHandler(fh)
-
         logging.captureWarnings(True)
-        try:
-            logging.getLogger("werkzeug").setLevel(logging.INFO)
-            logging.getLogger("watchdog.observers").setLevel(logging.WARNING)
-            logging.getLogger("urllib3").setLevel(logging.WARNING)
-        except Exception:
-            pass
+        for n, sub_level in (
+            ("werkzeug", logging.INFO),
+            ("watchdog.observers", logging.WARNING),
+            ("urllib3", logging.WARNING),
+        ):
+            logging.getLogger(n).setLevel(sub_level)
         return
 
-    # Fresh (re)build when not configured or force=True
     if force:
         for h in list(root.handlers):
             root.removeHandler(h)
 
-    fmt = "%(asctime)s %(levelname)s [%(name)s] (%(threadName)s) %(message)s"
-    datefmt = "%Y-%m-%d %H:%M:%S"
-    formatter = logging.Formatter(fmt=fmt, datefmt=datefmt)
+    formatter = logging.Formatter(
+        fmt="%(asctime)s %(levelname)s [%(name)s] (%(threadName)s) %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
-    # Console
+    # console
     ch = logging.StreamHandler()
     ch.setLevel(lvl)
     ch.setFormatter(formatter)
     root.addHandler(ch)
 
-    # Optional rotating file
-    if to_file and file_path:
-        p = Path(file_path)
+    # file
+    if to_file:
+        p = Path(ensure_dirs().logs_dir) / LOG_FILENAME
         p.parent.mkdir(parents=True, exist_ok=True)
         fh = RotatingFileHandler(
             p,
@@ -134,16 +126,15 @@ def configure_logging(
         root.addHandler(fh)
 
     logging.captureWarnings(True)
-    try:
-        logging.getLogger("werkzeug").setLevel(logging.INFO)
-        logging.getLogger("watchdog.observers").setLevel(logging.WARNING)
-        logging.getLogger("urllib3").setLevel(logging.WARNING)
-    except Exception:
-        pass
+    for n, sub_level in (
+        ("werkzeug", logging.INFO),
+        ("watchdog.observers", logging.WARNING),
+        ("urllib3", logging.WARNING),
+    ):
+        logging.getLogger(n).setLevel(sub_level)
 
     _CONFIGURED = True
 
 
 def get_logger(name: str | None = None) -> logging.Logger:
-    """Convenience helper; identical to logging.getLogger but clearer in imports."""
     return logging.getLogger(name or __name__)

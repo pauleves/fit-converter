@@ -12,8 +12,8 @@ Layered runtime configuration for fit-converter.
 
 Precedence (low → high):
   1. Built-in defaults
-  2. ./config.toml
-  3. ./config.local.toml
+  2. <config_dir>/config.toml
+  3. <config_dir>/config.local.toml
   4. Environment variables (FIT_CONVERTER_*)
   5. (Caller applies CLI flag overrides after calling effective_config())
 
@@ -41,6 +41,7 @@ __all__ = [
 # ----------------------------
 
 _DEFAULTS: Dict[str, Any] = {
+    "data_dir": None,  # optional override; resolver has platform default
     "inbox": "inbox",
     "outbox": "outbox",
     "logs_dir": "logs",
@@ -50,7 +51,6 @@ _DEFAULTS: Dict[str, Any] = {
     "logging": {
         "level": "INFO",
         "to_file": True,
-        "file_path": None,  # will be derived if missing
         "rotate_max_bytes": 1_000_000,
         "backup_count": 5,
     },
@@ -91,27 +91,6 @@ def _coerce_type(value: str, reference: Any) -> Any:
     return value
 
 
-def _postprocess_effective(cfg: dict) -> dict:
-    log_cfg = cfg.get("logging", {})
-    if not log_cfg.get("file_path"):
-        from pathlib import Path
-
-        log_cfg["file_path"] = str(
-            Path(cfg.get("logs_dir", "logs")) / "fit-converter.log"
-        )
-    cfg["logging"] = log_cfg
-    return cfg
-
-
-def _finalize_logging(cfg: Dict[str, Any]) -> None:
-    """Ensure logging.file_path is set, deriving from logs_dir if missing/None."""
-    log = cfg.get("logging") or {}
-    if log.get("file_path") in (None, ""):
-        logs_dir = cfg.get("logs_dir", "logs")
-        log["file_path"] = str(Path(logs_dir) / "fit-converter.log")
-    cfg["logging"] = log
-
-
 # ----------------------------
 # Public API
 # ----------------------------
@@ -120,30 +99,34 @@ def _finalize_logging(cfg: Dict[str, Any]) -> None:
 def load_config() -> Dict[str, Any]:
     """
     Build the merged configuration dict WITHOUT logging.
-
-    Order of application:
-      defaults → config.toml → config.local.toml → env (FIT_CONVERTER_*)
+    Order: defaults → config.toml → config.local.toml → env (FIT_CONVERTER_*)
+    Config files are read from the resolved config_dir (never CWD).
     """
+    from fit_converter.paths import (  # local import avoids any risk of cycles
+        resolve_runtime_paths,
+    )
+
     cfg: Dict[str, Any] = _DEFAULTS.copy()
 
-    # 2) Global config file or fallback of example file.
-    main = Path("config.toml")
-    example = Path("config.example.toml")
-    if main.exists():
-        cfg.update(_load_toml(main))
-    elif example.exists():
-        cfg.update(_load_toml(example))
+    base = resolve_runtime_paths()
+    main = base.config_dir / "config.toml"
+    local = base.config_dir / "config.local.toml"
 
-    # 3) Local developer overrides (ignored if absent)
-    cfg.update(_load_toml(Path("config.local.toml")))
+    cfg.update(_load_toml(main))
+    cfg.update(_load_toml(local))
 
-    # 4) Environment overrides (FIT_CONVERTER_*)
+    # If user prefers a [paths] table, merge its keys into the flat namespace.
+    # Supported keys: data_dir, inbox, outbox, logs_dir
+    paths_tbl = cfg.pop("paths", {}) or {}
+    for k in ("data_dir", "inbox", "outbox", "logs_dir"):
+        if k in paths_tbl:
+            cfg[k] = paths_tbl[k]
+
+    # Environment overrides (FIT_CONVERTER_*)
     for key, value in os.environ.items():
         if not key.startswith("FIT_CONVERTER_"):
             continue
         name = key.removeprefix("FIT_CONVERTER_").lower()
-        # If the key is unknown to defaults, leave as string (opt-in behaviour)
-        # Otherwise coerce to the default's type.
         ref = _DEFAULTS.get(name)
         cfg[name] = _coerce_type(value, ref) if name in _DEFAULTS else value
 
@@ -152,15 +135,32 @@ def load_config() -> Dict[str, Any]:
 
 def effective_config(*, log: bool = True) -> Dict[str, Any]:
     """
-    Return the final merged config and (optionally) log it at INFO level.
-    Callers may apply CLI-flag overrides on top of this result.
+    Return the final merged config and (optionally) log it.
+    Also resolves inbox/outbox/logs_dir to absolute paths (CWD-independent).
     """
     cfg = load_config()
-    _finalize_logging(cfg)
+
+    # Run through the path resolver to normalise relative values against data/state.
+    from fit_converter.paths import resolve as resolve_paths
+
+    p = resolve_paths(
+        {
+            "data_dir": cfg.get("data_dir"),
+            "state_dir": cfg.get("state_dir"),
+            "inbox": cfg.get("inbox"),
+            "outbox": cfg.get("outbox"),
+            "logs_dir": cfg.get("logs_dir"),
+        }
+    )
+
+    # Reflect effective absolute paths back into cfg
+    cfg["inbox"] = str(p.inbox)
+    cfg["outbox"] = str(p.outbox)
+    cfg["logs_dir"] = str(p.logs_dir)
+
     if log:
         logger = logging.getLogger(__name__)
         logger.info("[cfg] Effective configuration:")
-        # Align keys in a stable order for readability
         for k in sorted(cfg.keys()):
             logger.info("  %-14s = %s", k, cfg[k])
 

@@ -18,20 +18,33 @@ from flask import (
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
-from fit_converter import paths
 from fit_converter.cfg import effective_config
-from fit_converter.logging_setup import configure_logging
+from fit_converter.logging_setup import configure_logging, get_logger
 
+# from fit_converter import paths
+from fit_converter.paths import ensure_dirs, resolve
+
+from . import __version__
 from .converter import ConversionError, convert_with_report
 
-# --- Bootstrap: config → logging → log effective config ---
-_cfg = effective_config(log=False)
-_log_cfg = _cfg["logging"]
-configure_logging(**_log_cfg)
-config = effective_config(log=True)
+# --- Bootstrap: deterministic startup (paths → config → logging) ---
+# 1) establish dirs
+paths = ensure_dirs()
 
-logger = logging.getLogger(__name__)
-paths.warn_if_running_inside_src(logger)
+# 2) load config once
+config = effective_config(log=False)
+
+# 3) configure logging once (no file_path anymore)
+configure_logging(**config["logging"])
+
+# 4) get a logger
+logger = get_logger("fit_converter.web")
+
+# (optionally log where we’re writing)
+logger.info("File logging to %s", Path(paths.logs_dir) / "fit-converter.log")
+
+paths_resolved = resolve(config)
+
 app = Flask(__name__)
 app.secret_key = (
     os.environ.get("FLASK_SECRET_KEY")
@@ -76,7 +89,10 @@ def healthz():
 @app.get("/")
 def index():
     return render_template(
-        "upload.html", transform_default=config["converter"]["transform_default"]
+        "upload.html",
+        transform_default=bool(
+            (config.get("converter") or {}).get("transform_default", False)
+        ),
     )
 
 
@@ -94,9 +110,9 @@ def upload_file():
         return redirect(url_for("index"))
 
     safe_name = secure_filename(uploaded.filename)
-    inbox_path = paths.INBOX / safe_name
+    inbox_path = paths_resolved.inbox / safe_name
     out_name = Path(safe_name).with_suffix(".csv").name
-    out_path = paths.OUTBOX / out_name
+    out_path = paths_resolved.outbox / out_name
 
     try:
         uploaded.save(inbox_path)
@@ -134,7 +150,7 @@ def upload_file():
 
 @app.get("/download/<path:filename>")
 def download_csv(filename):
-    out_path = paths.OUTBOX / filename
+    out_path = paths_resolved.outbox / filename
     if not out_path.exists():
         flash("❌ File not found.", "error")
         return redirect(url_for("index"))
@@ -201,6 +217,11 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=debug_default,
         help="Enable Flask debug / reloader",
+    ),
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     return parser
 

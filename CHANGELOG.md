@@ -1,5 +1,51 @@
 # Changelog
 
+## [v0.5.0] — 2025-11-02
+
+### ✨ Major Improvements
+- **CWD-independent paths:** all data, config, and log directories now resolve via platform-appropriate XDG/AppData locations.
+  - Linux/macOS: `~/.config`, `~/.local/share`, `~/.local/state`
+  - Windows: `%APPDATA%`, `%LOCALAPPDATA%`
+- **Unified logging system:**
+  - Removed `logging.file_path` from config — use `[paths].logs_dir` only.
+  - All processes write to `<logs_dir>/fit-converter.log`.
+  - Duplicate-handler guards, rotating file handler, and clear fallback to console.
+- **Deterministic startup:**
+  `ensure_dirs → effective_config → configure_logging` is now the standard init sequence for all entry points.
+- **Watcher and web app alignment:**
+  Both resolve paths at runtime using `paths.resolve(config)`; no more global `paths.INBOX/OUTBOX`.
+- **Doctor utility:**
+  New `python -m fit_converter.doctor` command reports config locations, rwx permissions, and free-space checks.
+- **Simplified configuration:**
+  - Config files read from `~/.config/fit_converter/config.toml` (or Windows equivalent).
+  - Support `[paths]` and `[logging]` TOML tables plus environment overrides (`APP_DATA_DIR`, `APP_LOGS_DIR`, etc.).
+- **README overhaul:**
+  New setup guide detailing installation, default folder locations, and config examples.
+
+### 🧹 Minor / Internal
+- Removed unused `get_app_logger()`.
+- Removed deprecated module-level `INBOX`, `OUTBOX`, `LOGS_DIR`.
+- Cleaned up Ruff warnings (E741, F401, F841, etc.).
+- Consistent `__init__.py` exports for `effective_config` and path utilities.
+
+### 🚀 Upgrade notes
+If upgrading from ≤ v0.4:
+1. Delete any `logging.file_path` keys in your TOML.
+2. Optionally set `[paths].logs_dir` to choose where `fit-converter.log` lives.
+3. Run `python -m fit_converter.doctor` to verify folder permissions.
+
+---
+
+## Version bump
+
+### 1️⃣ In `pyproject.toml`
+```toml
+[project]
+name = "fit-converter"
+-version = "0.4.0"
++version = "0.5.0"
+```
+
 ## [0.4.0] — 2025-10-29
 
 ### 🚀 Highlights
