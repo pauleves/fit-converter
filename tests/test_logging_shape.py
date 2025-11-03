@@ -1,26 +1,39 @@
 # tests/test_cfg_logging_shape.py
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from fit_converter.cfg import effective_config
+from fit_converter.logging_setup import LOG_FILENAME, configure_logging
+from fit_converter.paths import ensure_dirs
 
 
 def test_defaults_provide_complete_logging_section(tmp_path, monkeypatch):
-    # Point cfg to a temp directory if your cfg respects CWD or env
-    monkeypatch.chdir(tmp_path)
+    # Isolate config/state so nothing from the real machine leaks in
+    monkeypatch.setenv("APP_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("APP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("APP_LOGS_DIR", str(tmp_path / "state" / "logs"))
+
     cfg = effective_config(log=False)
     log = cfg["logging"]
-    assert set(
-        ["level", "to_file", "file_path", "rotate_max_bytes", "backup_count"]
-    ).issubset(log.keys())
-    assert Path(log["file_path"]).name == "fit-converter.log"  # derived from logs_dir
-    assert cfg["logs_dir"] in str(log["file_path"])
 
+    # 1) Schema check (no file_path any more)
+    assert {"level", "to_file", "rotate_max_bytes", "backup_count"} <= set(log.keys())
 
-def test_toml_overrides_file_path(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.toml").write_text(
-        '[logging]\nlevel="DEBUG"\nfile_path="custom/path/app.log"\n'
+    # 2) Behaviour check: configure and assert the file handler path
+    configure_logging(
+        level=log["level"],
+        to_file=log["to_file"],
+        rotate_max_bytes=log["rotate_max_bytes"],
+        backup_count=log["backup_count"],
+        force=True,  # ensure a clean root logger for this test
     )
-    cfg = effective_config(log=False)
-    assert cfg["logging"]["level"] == "DEBUG"
-    assert cfg["logging"]["file_path"].endswith("custom/path/app.log")
+
+    # Grab the single rotating file handler and compare paths
+    import logging
+
+    root = logging.getLogger()
+    fhs = [h for h in root.handlers if isinstance(h, RotatingFileHandler)]
+    assert len(fhs) == 1
+
+    expected = Path(ensure_dirs().logs_dir) / LOG_FILENAME
+    assert Path(fhs[0].baseFilename) == expected

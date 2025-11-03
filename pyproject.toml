@@ -1,14 +1,17 @@
 [project]
 name = "fit-converter"
-version = "0.5.0"
-description = "FIT → CSV converter with optional transformations and Flask interface"
+version = "0.5.1"
+description = "Convert Garmin FIT files to CSV via CLI, web UI, and watcher."
 readme = "README.md"
 requires-python = ">=3.14"
-authors = [
-    { name = "Paul Eves" }
+authors = [{ name = "Paul Eves" }]
+keywords = ["garmin", "fit", "csv", "converter", "flask", "watchdog"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
 ]
-license-files = ["LICENSE"]
-license = "MIT"
+
 dependencies = [
     "fitparse>=1.2.0",
     "Flask>=3.1.2",
@@ -24,8 +27,17 @@ dev = [
     "pre-commit>=3.0.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/pauleves/fit-converter"
+Issues = "https://github.com/pauleves/fit-converter/issues"
+
+[project.scripts]
+fit-converter = "fit_converter.app:main"
+fit-converter-watcher = "fit_converter.watcher:main"
+fit-converter-doctor = "fit_converter.doctor:main"
+
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
@@ -38,7 +50,7 @@ include = ["fit_converter*"]
 exclude = ["tests*"]
 
 [tool.setuptools.package-data]
-fit_converter = []
+"fit_converter" = ["templates/**/*", "static/**/*"]
 
 # Tool configs (nice to keep in one place)
 [tool.black]
@@ -65,7 +77,3 @@ minversion = "8.0"
 addopts = "-q"
 testpaths = ["tests"]
 pythonpath = ["src"]
-
-[project.scripts]
-fit-converter = "fit_converter.app:main"
-fit-converter-watcher = "fit_converter.watcher:main"

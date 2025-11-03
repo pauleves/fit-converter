@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.5.1] — 2025-11-03
+
+### 🧹 Fixes & maintenance
+- Fixed unit tests after path/logging refactor.
+- Minor tweaks from App Readiness checklist (CI smoke tests, favicon, packaging).
+- Verified wheel install and TestPyPI publishing flow.
+
+---
+
 ## [v0.5.0] — 2025-11-02
 
 ### ✨ Major Improvements

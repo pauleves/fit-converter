@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <title>{% block title %}FIT→CSV{% endblock %}</title>
-  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon-256.png') }}" sizes="256x256">
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; line-height:1.45; }
     .container { max-width: 720px; }

@@ -1,8 +1,23 @@
+import os
 from pathlib import Path
 
 import pytest
 
 from fit_converter.converter import ConversionReport
+
+
+@pytest.fixture(autouse=True)
+def _isolate_env_and_paths_cache(monkeypatch):
+    # 1) Nuke env that can affect path resolution/config
+    for k in list(os.environ):
+        if k.startswith("APP_") or k.startswith("FIT_CONVERTER_"):
+            monkeypatch.delenv(k, raising=False)
+
+    # 2) Clear the lru_cache used by resolve_runtime_paths()
+    #    so each test sees the env it sets.
+    import fit_converter.paths as p
+
+    p.resolve_runtime_paths.cache_clear()
 
 
 @pytest.fixture

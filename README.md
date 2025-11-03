@@ -191,3 +191,10 @@ rm -rf ~/.local/state/fit_converter
 ```
 
 Now you’re ready to convert FIT files reliably — no CWD issues, consistent logs, and clean per-user configuration.
+
+
+# Development & Release
+To verify a build locally before tagging, run:
+```bash
+./scripts/verify-install.sh
+```

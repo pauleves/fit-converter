@@ -6,7 +6,6 @@ from pathlib import Path
 
 from flask import (
     Flask,
-    Response,
     flash,
     jsonify,
     redirect,
@@ -45,7 +44,7 @@ logger.info("File logging to %s", Path(paths.logs_dir) / "fit-converter.log")
 
 paths_resolved = resolve(config)
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = (
     os.environ.get("FLASK_SECRET_KEY")
     or (config.get("flask") or {}).get("secret_key")
@@ -155,11 +154,6 @@ def download_csv(filename):
         flash("❌ File not found.", "error")
         return redirect(url_for("index"))
     return send_file(out_path, as_attachment=True, download_name=out_path.name)
-
-
-@app.route("/favicon.ico")
-def favicon_empty():
-    return Response(status=204)
 
 
 # -------------------------

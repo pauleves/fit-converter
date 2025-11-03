@@ -117,6 +117,11 @@ coverage.xml
 test-results/
 
 # ==========================
+# Local verification venvs
+# ==========================
+.pkgtest/
+
+# ==========================
 # Jupyter (if used)
 # ==========================
 .ipynb_checkpoints/

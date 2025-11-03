@@ -26,3 +26,104 @@ jobs:
 
       - name: Run tests
         run: pytest -q
+
+      - name: Logging smoke (writes to runner temp)
+        env:
+          APP_DATA_DIR: ${{ runner.temp }}/fc-data
+          APP_STATE_DIR: ${{ runner.temp }}/fc-state
+          APP_LOGS_DIR: ${{ runner.temp }}/fc-state/logs
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from fit_converter.cfg import effective_config
+          from fit_converter.logging_setup import configure_logging, get_logger
+          from fit_converter.paths import ensure_dirs
+
+          p = ensure_dirs()
+          c = effective_config(log=False)
+          configure_logging(**c["logging"])
+          log = get_logger("fit_converter.ci")
+          log.info("ci smoke: logging is configured")
+
+          log_file = Path(p.logs_dir) / "fit-converter.log"
+          print("LOGFILE:", log_file)
+          assert log_file.exists(), "log file was not created"
+          assert "fit-converter" in log_file.name
+          print("OK")
+          PY
+
+  install-from-wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build twine
+
+      - name: Build wheel & sdist
+        run: python -m build
+
+      - name: Check metadata (twine)
+        run: python -m twine check dist/*
+
+      - name: Create venv & install wheel
+        run: |
+          python -m venv .pkgtest
+          . .pkgtest/bin/activate
+          pip install --upgrade pip
+          pip install dist/fit_converter-*.whl
+          python - <<'PY'
+          import os, subprocess, sys, time, urllib.request
+          # Route files to runner temp
+          rt = os.environ.get("RUNNER_TEMP", "/tmp")
+          os.environ["APP_DATA_DIR"]  = f"{rt}/fc-data"
+          os.environ["APP_STATE_DIR"] = f"{rt}/fc-state"
+          os.environ["APP_LOGS_DIR"]  = f"{rt}/fc-state/logs"
+
+          # Doctor
+          subprocess.check_call([sys.executable, "-m", "fit_converter.doctor"])
+
+          # Web UI health check
+          p = subprocess.Popen([sys.executable, "-m", "fit_converter.app", "--host", "127.0.0.1", "--port", "5001"])
+          time.sleep(1.8)
+          with urllib.request.urlopen("http://127.0.0.1:5001/healthz", timeout=3) as r:
+              assert r.status == 200
+          p.terminate(); p.wait(timeout=5)
+
+          # Watcher start/stop
+          p = subprocess.Popen([sys.executable, "-m", "fit_converter.watcher", "--log-level", "INFO", "--retries", "1", "--poll", "0.2"])
+          time.sleep(1.0)
+          p.terminate(); p.wait(timeout=5)
+          PY
+
+  release-testpypi:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build twine
+
+      - name: Build wheel & sdist
+        run: python -m build
+
+      - name: Upload to TestPyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        run: |
+          python -m twine upload --repository testpypi dist/*
