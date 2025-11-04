@@ -16,8 +16,6 @@ except PackageNotFoundError:
 # Re-export the clean paths API
 from .paths import Paths, ensure_dirs, resolve, resolve_runtime_paths
 
-__version__ = "0.5.0"
-
 __all__ = [
     "effective_config",
     "Paths",

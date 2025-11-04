@@ -89,9 +89,7 @@ def healthz():
 def index():
     return render_template(
         "upload.html",
-        transform_default=bool(
-            (config.get("converter") or {}).get("transform_default", False)
-        ),
+        transform_default=bool(config.get("transform", True)),
     )
 
 

@@ -3,45 +3,36 @@ from __future__ import annotations
 
 import logging
 import os
-import tomllib
-from pathlib import Path
 from typing import Any, Dict
 
 """
-Layered runtime configuration for fit-converter.
+Minimal configuration for fit-converter.
 
-Precedence (low → high):
-  1. Built-in defaults
-  2. <config_dir>/config.toml
-  3. <config_dir>/config.local.toml
-  4. Environment variables (FIT_CONVERTER_*)
-  5. (Caller applies CLI flag overrides after calling effective_config())
-
-Usage:
-    from fit_converter.cfg import effective_config
-    config = effective_config(log=True)  # dict
-
-Environment variables:
-    Prefix: FIT_CONVERTER_
-    Example: FIT_CONVERTER_OUTBOX=/tmp/out  → {"outbox": "/tmp/out"}
+Model:
+  - Start from in-code defaults.
+  - Override with environment variables.
+    * Supported prefixes (checked in this order):
+        1) FIT_CONVERTER_
+        2) APP_
+    * Examples:
+        FIT_CONVERTER_TRANSFORM=false
+        APP_INBOX=/data/inbox
+        FIT_CONVERTER_LOG_LEVEL=DEBUG
 
 Notes:
-    - Types for env vars are coerced based on the default value for that key.
-      (bool/int/float supported; otherwise str)
+  - Types are coerced based on the default (bool/int/float → parsed; else str).
+  - Paths (inbox/outbox/logs_dir/data_dir) are normalized via fit_converter.paths.resolve
+    in effective_config().
 """
 
-
-__all__ = [
-    "effective_config",
-    "load_config",
-]
+__all__ = ["effective_config", "load_config"]
 
 # ----------------------------
 # Defaults
 # ----------------------------
 
 _DEFAULTS: Dict[str, Any] = {
-    "data_dir": None,  # optional override; resolver has platform default
+    "data_dir": None,  # Optional override; resolver provides platform default
     "inbox": "inbox",
     "outbox": "outbox",
     "logs_dir": "logs",
@@ -56,32 +47,22 @@ _DEFAULTS: Dict[str, Any] = {
     },
 }
 
+# Flat keys we allow env overrides for (top-level only)
+_FLAT_KEYS = {k for k in _DEFAULTS.keys() if k != "logging"}
+
+# Logging subkeys allowed via env (e.g., FIT_CONVERTER_LOG_LEVEL=DEBUG)
+_LOG_KEYS = {"level", "to_file", "rotate_max_bytes", "backup_count"}
+
+# Env prefixes checked in order (first match wins)
+_PREFIXES = ("FIT_CONVERTER_", "APP_")
+
 
 # ----------------------------
 # Helpers
 # ----------------------------
 
 
-def _load_toml(path: Path) -> Dict[str, Any]:
-    """
-    Load TOML file into a flat dict. Returns {} if the path does not exist.
-    """
-    if not path.exists():
-        return {}
-    with path.open("rb") as f:
-        try:
-            data = tomllib.load(f)
-        except tomllib.TOMLDecodeError as e:
-            logging.getLogger(__name__).warning("Malformed TOML %s: %s", path, e)
-            return {}
-    return dict(data)
-
-
-def _coerce_type(value: str, reference: Any) -> Any:
-    """
-    Coerce string 'value' coming from the environment to the type of 'reference'
-    (derived from _DEFAULTS). Supports bool/int/float, falls back to str.
-    """
+def _coerce(value: str, reference: Any) -> Any:
     if isinstance(reference, bool):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     if isinstance(reference, int):
@@ -91,6 +72,15 @@ def _coerce_type(value: str, reference: Any) -> Any:
     return value
 
 
+def _get_env(name: str) -> str | None:
+    """Return the first env value found across supported prefixes, else None."""
+    for prefix in _PREFIXES:
+        key = f"{prefix}{name}"
+        if key in os.environ:
+            return os.environ[key]
+    return None
+
+
 # ----------------------------
 # Public API
 # ----------------------------
@@ -98,37 +88,21 @@ def _coerce_type(value: str, reference: Any) -> Any:
 
 def load_config() -> Dict[str, Any]:
     """
-    Build the merged configuration dict WITHOUT logging.
-    Order: defaults → config.toml → config.local.toml → env (FIT_CONVERTER_*)
-    Config files are read from the resolved config_dir (never CWD).
+    Build the merged configuration dict (defaults + env overrides only).
     """
-    from fit_converter.paths import (  # local import avoids any risk of cycles
-        resolve_runtime_paths,
-    )
+    cfg: Dict[str, Any] = {**_DEFAULTS, "logging": dict(_DEFAULTS["logging"])}
 
-    cfg: Dict[str, Any] = _DEFAULTS.copy()
+    # Top-level overrides
+    for name in _FLAT_KEYS:
+        env_val = _get_env(name.upper())
+        if env_val is not None:
+            cfg[name] = _coerce(env_val, _DEFAULTS[name])
 
-    base = resolve_runtime_paths()
-    main = base.config_dir / "config.toml"
-    local = base.config_dir / "config.local.toml"
-
-    cfg.update(_load_toml(main))
-    cfg.update(_load_toml(local))
-
-    # If user prefers a [paths] table, merge its keys into the flat namespace.
-    # Supported keys: data_dir, inbox, outbox, logs_dir
-    paths_tbl = cfg.pop("paths", {}) or {}
-    for k in ("data_dir", "inbox", "outbox", "logs_dir"):
-        if k in paths_tbl:
-            cfg[k] = paths_tbl[k]
-
-    # Environment overrides (FIT_CONVERTER_*)
-    for key, value in os.environ.items():
-        if not key.startswith("FIT_CONVERTER_"):
-            continue
-        name = key.removeprefix("FIT_CONVERTER_").lower()
-        ref = _DEFAULTS.get(name)
-        cfg[name] = _coerce_type(value, ref) if name in _DEFAULTS else value
+    # Logging overrides (LOG_LEVEL / LOG_TO_FILE / LOG_ROTATE_MAX_BYTES / LOG_BACKUP_COUNT)
+    for k in _LOG_KEYS:
+        env_val = _get_env(f"LOG_{k.upper()}")
+        if env_val is not None:
+            cfg["logging"][k] = _coerce(env_val, _DEFAULTS["logging"][k])
 
     return cfg
 
@@ -140,8 +114,10 @@ def effective_config(*, log: bool = True) -> Dict[str, Any]:
     """
     cfg = load_config()
 
-    # Run through the path resolver to normalise relative values against data/state.
-    from fit_converter.paths import resolve as resolve_paths
+    # Normalize paths using the existing resolver
+    from fit_converter.paths import (  # local import to avoid cycles
+        resolve as resolve_paths,
+    )
 
     p = resolve_paths(
         {
@@ -153,7 +129,7 @@ def effective_config(*, log: bool = True) -> Dict[str, Any]:
         }
     )
 
-    # Reflect effective absolute paths back into cfg
+    # Reflect effective absolute paths back into cfg (as strings)
     cfg["inbox"] = str(p.inbox)
     cfg["outbox"] = str(p.outbox)
     cfg["logs_dir"] = str(p.logs_dir)
