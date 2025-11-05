@@ -217,22 +217,23 @@ def main() -> None:
         # CLI wins for this process
         merged["logging"]["level"] = args.log_level
 
-    # 3) Configure logging once (writes to <logs_dir>/fit-converter.log)
-    configure_logging(**merged["logging"])
-    global logger
-    logger = get_logger("fit_converter.watcher")
-
-    # 4) Compute ensured paths + runtime knobs from merged config
-    #    Allow data_dir/state_dir/inbox/outbox/logs_dir overrides via merged config.
+    # 3) Compute ensured paths from merged config (roots come from env; only pass leaves)
     p = resolve(
         {
-            "data_dir": merged.get("data_dir"),
-            # "state_dir": merged.get("state_dir"),  # internal, keep hidden unless you expose it
             "inbox": merged.get("inbox"),
             "outbox": merged.get("outbox"),
             "logs_dir": merged.get("logs_dir"),
         }
     )
+
+    # 4) Configure logging once, using resolved logs_dir and unified logging config
+    configure_logging(logs_dir=p.logs_dir, logging_cfg=merged["logging"])
+    global logger
+    logger = get_logger("fit_converter.watcher")
+    # Optional: cap noisy libs to avoid inotify spam at DEBUG
+    logging.getLogger("watchdog").setLevel(logging.WARNING)
+    logging.getLogger("werkzeug").setLevel(logging.INFO)
+
     inbox, outbox = p.inbox, p.outbox
     TRANSFORM = bool(merged.get("transform", True))
     POLL = float(merged.get("poll_interval", 0.5))

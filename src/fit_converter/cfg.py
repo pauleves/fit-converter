@@ -13,10 +13,8 @@ Model:
   - Override with environment variables.
     * Supported prefixes (checked in this order):
         1) FIT_CONVERTER_
-        2) APP_
     * Examples:
         FIT_CONVERTER_TRANSFORM=false
-        APP_INBOX=/data/inbox
         FIT_CONVERTER_LOG_LEVEL=DEBUG
 
 Notes:
@@ -44,17 +42,20 @@ _DEFAULTS: Dict[str, Any] = {
         "to_file": True,
         "rotate_max_bytes": 1_000_000,
         "backup_count": 5,
+        "filename": "fit-converter.log",
     },
 }
 
-# Flat keys we allow env overrides for (top-level only)
-_FLAT_KEYS = {k for k in _DEFAULTS.keys() if k != "logging"}
+# Only allow env overrides for flat leaf keys; roots are owned by paths.py
+_FLAT_KEYS = {
+    k for k in _DEFAULTS.keys() if k not in ("logging", "data_dir", "state_dir")
+}
 
 # Logging subkeys allowed via env (e.g., FIT_CONVERTER_LOG_LEVEL=DEBUG)
-_LOG_KEYS = {"level", "to_file", "rotate_max_bytes", "backup_count"}
+_LOG_KEYS = {"level", "to_file", "rotate_max_bytes", "backup_count", "filename"}
 
 # Env prefixes checked in order (first match wins)
-_PREFIXES = ("FIT_CONVERTER_", "APP_")
+_PREFIXES = ("FIT_CONVERTER_",)
 
 
 # ----------------------------
@@ -119,10 +120,9 @@ def effective_config(*, log: bool = True) -> Dict[str, Any]:
         resolve as resolve_paths,
     )
 
+    # Let paths.py determine base roots from env; only pass leaf overrides
     p = resolve_paths(
         {
-            "data_dir": cfg.get("data_dir"),
-            "state_dir": cfg.get("state_dir"),
             "inbox": cfg.get("inbox"),
             "outbox": cfg.get("outbox"),
             "logs_dir": cfg.get("logs_dir"),

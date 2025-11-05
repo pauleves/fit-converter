@@ -1,5 +1,47 @@
 # Changelog
 
+## v0.6.0 — Unified Env Configuration & Logging (November 2025)
+
+### 🧩 Highlights
+- Replaced layered TOML configuration with a **single env-only system**.
+- Unified **FIT_CONVERTER_*** naming across all modules (removed legacy `APP_`).
+- Centralised logging configuration — one source of truth for log filename and level.
+- Cleaned development structure (`.devdata/` replaces scattered `/inbox`, `/outbox`, `/logs`).
+- Simplified `app.py` and `watcher.py` startup logic for deterministic bootstrap.
+- Updated tests to match new configuration and logging bootstrap model.
+
+---
+
+### 🔧 Core Changes
+| Area | Change |
+|------|---------|
+| **Configuration** | Removed TOML & config discovery; added env-only `cfg.py` with defaults and type coercion. |
+| **Environment Prefixes** | All runtime settings now use `FIT_CONVERTER_` prefix (e.g. `FIT_CONVERTER_TRANSFORM=false`). |
+| **Paths** | Simplified `paths.py` — no `APP_*`; logs relative to `state_dir` when not absolute. |
+| **Logging** | `configure_logging(logs_dir=…, logging_cfg=…)` API; filename configurable via `FIT_CONVERTER_LOG_FILENAME`. |
+| **Noise Control** | Quieted `watchdog` and `werkzeug` at higher log levels to stop feedback loops. |
+| **Watcher** | Uses new logging bootstrap; no more nested `.devdata/.devdata` path bug. |
+| **Tests** | Modernised `test_app_bootstrap_logging` for new API; full `Paths` namespace mocking. |
+
+---
+
+### 🧪 Developer Notes
+- **Dev env:** load `.env.dev` → creates `.devdata/{inbox,outbox,logs}`.
+- **Prod env:** managed via `/etc/fit-converter/env`.
+- `fit-converter doctor` reads env context; no TOML required.
+- `FIT_CONVERTER_LOG_TO_FILE=true` writes to `<state_dir>/logs/<filename>` (default `fit-converter.log`).
+
+---
+
+### 🧱 Migration
+| From | To |
+|------|----|
+| `APP_DATA_DIR`, `APP_LOGS_DIR`, etc. | → `FIT_CONVERTER_DATA_DIR`, `FIT_CONVERTER_LOGS_DIR` |
+| `config.toml` or `config.local.toml` | → delete; use env vars |
+| Hardcoded `"fit-converter.log"` | → `FIT_CONVERTER_LOG_FILENAME` in env |
+
+---
+
 ## [v0.5.1] — 2025-11-03
 
 ### 🧹 Fixes & maintenance
