@@ -1,6 +1,6 @@
 [project]
 name = "fit-converter"
-version = "0.5.1"
+version = "0.6.0"
 description = "Convert Garmin FIT files to CSV via CLI, web UI, and watcher."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -8,10 +8,10 @@ authors = [{ name = "Paul Eves" }]
 keywords = ["garmin", "fit", "csv", "converter", "flask", "watchdog"]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-
 dependencies = [
     "fitparse>=1.2.0",
     "Flask>=3.1.2",
@@ -41,7 +41,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = { "" = "src" }
 include-package-data = true
 
 [tool.setuptools.packages.find]
@@ -52,10 +52,10 @@ exclude = ["tests*"]
 [tool.setuptools.package-data]
 "fit_converter" = ["templates/**/*", "static/**/*"]
 
-# Tool configs (nice to keep in one place)
+# ---- Dev tooling (synced to Python 3.14) ----
 [tool.black]
 line-length = 88
-target-version = ["py313"]
+# target-version = ["py314"]
 skip-string-normalization = true
 
 [tool.isort]
@@ -67,7 +67,7 @@ multi_line_output = 3
 include_trailing_comma = true
 
 [tool.ruff]
-target-version = "py313"
+# target-version = "py314"
 line-length = 88
 fix = true
 src = ["src"]

@@ -27,20 +27,13 @@ from . import __version__
 from .converter import ConversionError, convert_with_report
 
 # --- Bootstrap: deterministic startup (paths → config → logging) ---
-# 1) establish dirs
-paths = ensure_dirs()
+paths = ensure_dirs()  # creates dirs and returns absolute paths
+config = effective_config(log=False)  # env-only config
 
-# 2) load config once
-config = effective_config(log=False)
+# Configure logging once using the single source of truth
+configure_logging(logs_dir=paths.logs_dir, logging_cfg=config["logging"])
 
-# 3) configure logging once (no file_path anymore)
-configure_logging(**config["logging"])
-
-# 4) get a logger
 logger = get_logger("fit_converter.web")
-
-# (optionally log where we’re writing)
-logger.info("File logging to %s", Path(paths.logs_dir) / "fit-converter.log")
 
 paths_resolved = resolve(config)
 
@@ -89,9 +82,7 @@ def healthz():
 def index():
     return render_template(
         "upload.html",
-        transform_default=bool(
-            (config.get("converter") or {}).get("transform_default", False)
-        ),
+        transform_default=bool(config.get("transform", True)),
     )
 
 

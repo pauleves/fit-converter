@@ -27,30 +27,37 @@ jobs:
       - name: Run tests
         run: pytest -q
 
-      - name: Logging smoke (writes to runner temp)
+      # --- Smoke: paths + logging bootstrap (env-only, v0.6) ---
+      - name: Smoke logging & paths
         env:
-          APP_DATA_DIR: ${{ runner.temp }}/fc-data
-          APP_STATE_DIR: ${{ runner.temp }}/fc-state
-          APP_LOGS_DIR: ${{ runner.temp }}/fc-state/logs
+          FIT_CONVERTER_DATA_DIR: ${{ runner.temp }}/fc-data
+          FIT_CONVERTER_STATE_DIR: ${{ runner.temp }}/fc-state
+          FIT_CONVERTER_LOG_TO_FILE: "true"
+          FIT_CONVERTER_LOG_LEVEL: "INFO"
+          # optional: FIT_CONVERTER_LOG_FILENAME: "fit-converter.log"
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
           from fit_converter.cfg import effective_config
-          from fit_converter.logging_setup import configure_logging, get_logger
           from fit_converter.paths import ensure_dirs
+          from fit_converter.logging_setup import configure_logging, get_logger
 
-          p = ensure_dirs()
-          c = effective_config(log=False)
-          configure_logging(**c["logging"])
-          log = get_logger("fit_converter.ci")
-          log.info("ci smoke: logging is configured")
+          # Resolve dirs first (creates <state>/logs)
+          paths = ensure_dirs()
+          cfg = effective_config(log=False)
 
-          log_file = Path(p.logs_dir) / "fit-converter.log"
-          print("LOGFILE:", log_file)
-          assert log_file.exists(), "log file was not created"
-          assert "fit-converter" in log_file.name
-          print("OK")
+          # v0.6 logging API: pass logs_dir + logging block
+          configure_logging(logs_dir=paths.logs_dir, logging_cfg=cfg["logging"])
+
+          log = get_logger("ci.smoke")
+          log.info("hello from ci")
+
+          # Assert the logfile exists where we expect
+          fname = cfg["logging"].get("filename", "fit-converter.log")
+          logfile = Path(paths.logs_dir) / fname
+          assert logfile.exists(), f"missing logfile: {logfile}"
+          print("OK:", logfile)
           PY
 
   install-from-wheel:

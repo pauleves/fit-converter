@@ -56,11 +56,11 @@ htmlcov/
 # ==========================
 # Environment / Config Files
 # ==========================
-.env
-.env.*
+.env*
 *.ini
 *.cfg
 *.toml
+.devdata/
 
 # keep your main config tracked
 !pyproject.toml
@@ -68,13 +68,6 @@ htmlcov/
 # example config file
 !config.example.toml
 
-# ==========================
-# Inbox and Outbox
-# ==========================
-inbox/*
-!inbox/.gitkeep
-outbox/*
-!outbox/.gitkeep
 
 # ==========================
 # OS / Miscellaneous

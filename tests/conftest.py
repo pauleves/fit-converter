@@ -1,3 +1,5 @@
+import importlib
+import logging
 import os
 from pathlib import Path
 
@@ -18,6 +20,26 @@ def _isolate_env_and_paths_cache(monkeypatch):
     import fit_converter.paths as p
 
     p.resolve_runtime_paths.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_logging_between_tests():
+    # Remove all handlers from root
+    root = logging.getLogger()
+    for h in list(root.handlers):
+        root.removeHandler(h)
+    # Optionally silence root to a safe level
+    root.setLevel(logging.WARNING)
+
+    # Clear the idempotency guard on configure_logging
+    try:
+        import fit_converter.logging_setup as ls
+
+        if hasattr(ls.configure_logging, "_configured"):
+            delattr(ls.configure_logging, "_configured")
+        importlib.reload(ls)  # keep things fresh if tests import the module directly
+    except Exception:
+        pass
 
 
 @pytest.fixture

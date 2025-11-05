@@ -9,11 +9,11 @@ from pathlib import Path
 from typing import Any, Mapping
 
 APP_PKG_NAME = "fit_converter"  # import/package name
-# Env overrides (keep names short & explicit)
-ENV_CONFIG_DIR = "APP_CONFIG_DIR"
-ENV_DATA_DIR = "APP_DATA_DIR"
-ENV_STATE_DIR = "APP_STATE_DIR"
-ENV_LOGS_DIR = "APP_LOGS_DIR"  # optional: force logs dir (e.g., /var/log/fit_converter)
+# Env overrides
+ENV_CONFIG_DIR = "FIT_CONVERTER_CONFIG_DIR"
+ENV_DATA_DIR = "FIT_CONVERTER_DATA_DIR"
+ENV_STATE_DIR = "FIT_CONVERTER_STATE_DIR"
+ENV_LOGS_DIR = "FIT_CONVERTER_LOGS_DIR"  # optional: force logs dir
 
 
 def _expand(p: str | Path) -> Path:
