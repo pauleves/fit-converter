@@ -16,7 +16,8 @@ Includes optional data transformations, a Flask upload interface, and a headless
 
 # Setup & Configuration
 
-This section explains how to install the app, where it stores its files, and how to configure `config.toml` after installation.
+This section explains how to install the app, where it stores its files, using a **single environment-based configuration**.
+No `config.toml` or per-user config files are required.
 
 ## 1️⃣ Install
 
@@ -33,117 +34,78 @@ pip install dist/fit_converter-*.whl
 
 The app follows platform conventions and never depends on your current working directory.
 
-### Linux / macOS
-| Purpose           | Default path                                          |
-| ----------------- | ----------------------------------------------------- |
-| Config            | `~/.config/fit_converter/`                            |
-| Data (user files) | `~/.local/share/fit_converter/` → `inbox/`, `outbox/` |
-| State (internal)  | `~/.local/state/fit_converter/`                       |
-| Logs              | `~/.local/state/fit_converter/logs/fit-converter.log` |
-
-### Windows
-| Purpose | Default path                                          |
-| ------- | ----------------------------------------------------- |
-| Config  | `%APPDATA%\fit_converter\`                            |
-| Data    | `%LOCALAPPDATA%\fit_converter\` → `inbox\`, `outbox\` |
-| State   | `%LOCALAPPDATA%\fit_converter\`                       |
-| Logs    | `%LOCALAPPDATA%\fit_converter\Logs\fit-converter.log` |
+| Purpose             | Default path (Linux/macOS)                            | Notes                                                                     |
+| ------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------- |
+| Data (inbox/outbox) | `~/.local/share/fit_converter/`                       | configurable via `FIT_CONVERTER_DATA_DIR`                                 |
+| State (logs, cache) | `~/.local/state/fit_converter/`                       | configurable via `FIT_CONVERTER_STATE_DIR`                                |
+| Logs                | `~/.local/state/fit_converter/logs/fit-converter.log` | configurable via `FIT_CONVERTER_LOGS_DIR` or `FIT_CONVERTER_LOG_FILENAME` |
 
 
-To confirm your current paths:
+Windows uses `%LOCALAPPDATA%\fit_converter\` and `%APPDATA%\fit_converter\` equivalents.
+
+
+## 3️⃣ Configure via Environment
+
+All runtime behaviour is controlled with `FIT_CONVERTER_*` variables (and optional `FLASK_*` for the web server).
+
+Example .env.dev:
 ```bash
+# Paths
+# (Uncomment these only if you want to set a non-default location in dev)
+# FIT_CONVERTER_DATA_DIR=/<location>
+# FIT_CONVERTER_STATE_DIR=./<location>
+# FIT_CONVERTER_LOGS_DIR=logs
 
-python - <<'PY'
-from fit_converter.paths import resolve_runtime_paths
-p = resolve_runtime_paths()
-print("config_dir:", p.config_dir)
-print("data_dir :", p.data_dir)
-print("state_dir:", p.state_dir)
-print("inbox    :", p.inbox)
-print("outbox   :", p.outbox)
-print("logs_dir :", p.logs_dir)
-PY
+FIT_CONVERTER_INBOX=inbox
+FIT_CONVERTER_OUTBOX=outbox
+FIT_CONVERTER_LOG_FILENAME=fit-converter.log
+
+# Behaviour
+FIT_CONVERTER_TRANSFORM=false
+FIT_CONVERTER_POLL_INTERVAL=0.5
+FIT_CONVERTER_RETRIES=3
+
+# Logging
+FIT_CONVERTER_LOG_LEVEL=DEBUG
+FIT_CONVERTER_LOG_TO_FILE=true
+FIT_CONVERTER_LOG_ROTATE_MAX_BYTES=1000000
+FIT_CONVERTER_LOG_BACKUP_COUNT=5
+
+# Flask (dev)
+FLASK_HOST=127.0.0.1
+FLASK_PORT=8000
+FLASK_DEBUG=0
+FLASK_SECRET_KEY=dev-only-not-secret
 ```
-
-
-## 3️⃣ Create your configuration
-
-Create your config folder and add config.toml:
+Load it when running locally:
 ```bash
-mkdir -p ~/.config/fit_converter
-nano ~/.config/fit_converter/config.toml
-```
-
-### Example `config.toml`
-```toml
-[paths]
-# Folder for logs (filename fixed to 'fit-converter.log')
-# logs_dir = "~/.local/state/fit_converter/logs"
-
-# Optional data folder and inbox/outbox overrides
-# data_dir = "~/fc-data"
-# inbox = "incoming"
-# outbox = "exports"
-
-[logging]
-level = "INFO"
-to_file = true
-rotate_max_bytes = 1000000
-backup_count = 5
-```
-
-### Notes
-- `inbox`/`outbox` can be absolute or relative to `data_dir`.
-- Log filename is always `fit-converter.log`; you control only `logs_dir`.
-- Internal `state_dir` is handled automatically.
-
-
-## 4️⃣ Environment overrides (optional)
-
-You can override TOML settings with environment variables:
-
-| Env var         | Purpose                             |
-| --------------- | ----------------------------------- |
-| `APP_DATA_DIR`  | Base for `inbox/` and `outbox/`     |
-| `APP_STATE_DIR` | Base for logs if `logs_dir` not set |
-| `APP_LOGS_DIR`  | Force logs directory directly       |
-
-
-Example:
-```bash
-APP_DATA_DIR=/tmp/fc-data python -m fit_converter.app
-APP_LOGS_DIR=/var/log/fit_converter python -m fit_converter.watcher
-```
-
-If using `/var/log/fit_converter`:
-```bash
-sudo mkdir -p /var/log/fit_converter
-sudo chown "$USER":adm /var/log/fit_converter
+set -a && source .env.dev && set +a
+export PYTHONPATH=src
 ```
 
 
-## 5️⃣ Verify setup with Doctor
+## 4️⃣ Verify setup with Doctor
 
-Run the built-in diagnostics:
+Run the built-in diagnostic tool:
 ```bash
 python -m fit_converter.doctor
 ```
 
 It prints:
 
-- Config file locations (`config.toml`, `config.local.toml`)
-- Resolved paths (config/data/state/inbox/outbox/logs)
-- RWX permissions and free-space warnings
+- Relevant `FIT_CONVERTER_*` and `FLASK_*` environment variables
+- Resolved absolute paths and RWX permissions
+- Effective logging configuration and log file path
 
 
 ## 6️⃣ Start the Web UI
 
 ```bash
-python -m fit_converter.app --host 127.0.0.1 --port 5000
-# Visit http://127.0.0.1:5000
+python -m fit_converter.app --host 127.0.0.1 --port 8000
+# Visit http://127.0.0.1:8000
 ```
-Uploads go to `inbox/`, converted CSVs appear in `outbox/`.
-Logs stream to `<logs_dir>/fit-converter.log`.
+- uploads go to `inbox/`, CSVs appear in `outbox/`.
+- Logs are written to `<state_dir>/logs/<filename>` (unless overriden).
 
 
 ## 7️⃣ Start the Watcher
@@ -152,34 +114,33 @@ The watcher automatically converts new .fit files dropped into inbox/:
 ```bash
 python -m fit_converter.watcher --log-level INFO --poll 0.5 --retries 2
 ```
-CLI flags override TOML settings for that session.
+CLI flags temporarily override environment values for that session.
 
 
 ## 8️⃣ Troubleshooting
-🧩 No logs written?
-- Run python -m fit_converter.doctor and confirm logs_dir exists and is writable.
-- Remove any old `logging.file_path` keys from your TOML.
+🧩 **No logs written?**
+- Run `python -m fit_converter.doctor` and confirm `logs_dir` exists and is writable.
+- Check `FIT_CONVERTER_LOG_TO_FILE=true`.
 
-📂 Files go to wrong inbox/outbox?
+📂 **Files go to an unexpected inbox/outbox?**
+In development, you normally **don’t set** any of the path variables.
+The app automatically uses platform defaults:
 
-Make sure you resolve paths at startup:
-```python
-from fit_converter.paths import resolve
-paths = resolve(config)
-INBOX, OUTBOX = paths.inbox, paths.outbox
+- Data: `~/.local/share/fit_converter` (Linux/macOS) or `%LOCALAPPDATA%\fit_converter`
+- State/Logs: `~/.local/state/fit_converter` (Linux/macOS) or `%LOCALAPPDATA%\fit_converter\Logs`
+
+These locations are stable and prevent watcher feedback loops during local runs.
+
+Only in **production** (for example on a Raspberry Pi or server) should you override them, e.g.:
+
+```bash
+FIT_CONVERTER_DATA_DIR=/var/lib/fit-converter
+FIT_CONVERTER_STATE_DIR=/var/lib/fit-converter/state
+FIT_CONVERTER_LOGS_DIR=/var/lib/fit-converter/state/logs
 ```
 
-🔐 Permissions on `/var/log`
-
-- Either adjust ownership or use a user-space log directory.
-
-- 🪟 Windows paths
-
-Use quotes for paths with spaces:
-``toml
-[paths]
-logs_dir = "C:\\Users\\Paul\\AppData\\Local\\fit_converter\\Logs"
-```
+Log feedback loop?
+At DEBUG level, `watchdog` may emit many inotify events; these are suppressed automatically in 0.6.
 
 
 ## 9️⃣ Uninstall / Reset
@@ -195,6 +156,18 @@ Now you’re ready to convert FIT files reliably — no CWD issues, consistent l
 
 # Development & Release
 To verify a build locally before tagging, run:
+
 ```bash
-./scripts/verify-install.sh
+# Verify install locally before tagging
+rm -rf dist build *.egg-info
+python -m build --wheel
+pip install dist/fit_converter-*.whl --force-reinstall
+pytest -q
+python -m fit_converter.doctor
+```
+
+Tag a release:
+```bash
+git tag -a v0.6.0 -m "v0.6.0 — unified env config & logging"
+git push origin v0.6.0
 ```
