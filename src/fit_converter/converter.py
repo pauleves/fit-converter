@@ -160,29 +160,28 @@ def fit_to_csv(
             existing_preferred = [k for k in preferred if k in all_keys]
             header = existing_preferred + sorted(all_keys - set(existing_preferred))
 
+        raw_header = list(header)
+
         if transform:
-            # cadence → cadence_spm (you already have this)
-            if "cadence" in header:
-                header = [("cadence_spm" if h == "cadence" else h) for h in header]
+            # Transform column names while keeping order; only ever emit a single pace column.
+            new_header: list[str] = []
+            pace_added = False
+            for name in raw_header:
+                if name == "cadence":
+                    new_header.append("cadence_spm")
+                elif name in ("speed", "enhanced_speed"):
+                    if not pace_added:
+                        new_header.append("pace_mm_ss_per_mile")
+                        pace_added = True
+                elif name == "position_lat":
+                    new_header.append("latitude_deg")
+                elif name == "position_long":
+                    new_header.append("longitude_deg")
+                else:
+                    new_header.append(name)
+            header = new_header
 
-            # speed/enhanced_speed → pace_min_per_mile (prefer enhanced_speed as the source)
-            # We only expose a single pace column to keep CSV tidy.
-            if "speed" in header or "enhanced_speed" in header:
-                header = [
-                    ("pace_mm_ss_per_mile" if h in ("speed", "enhanced_speed") else h)
-                    for h in header
-                ]
-                # If both existed, we just keep one pace column name
-
-            # position_lat/position_long (semicircles) → degrees columns
-            if "position_lat" in header:
-                header = [
-                    ("latitude_deg" if h == "position_lat" else h) for h in header
-                ]
-            if "position_long" in header:
-                header = [
-                    ("longitude_deg" if h == "position_long" else h) for h in header
-                ]
+        header_set = set(header)
 
         # -------- Write the CSV using the union header -------
         fit = FitFile(str(in_path))
@@ -196,22 +195,26 @@ def fit_to_csv(
                 row = {name: values.get(name) for name in header}
                 if transform:
                     # --- cadence → cadence_spm (replace) ---
-                    raw_cadence = values.get("cadence")
-                    row["cadence_spm"] = _to_spm(raw_cadence)
+                    if "cadence_spm" in header_set:
+                        raw_cadence = values.get("cadence")
+                        row["cadence_spm"] = _to_spm(raw_cadence)
 
-                    # --- speed/enhanced_speed → pace_min_per_mile (replace both with one) ---
-                    raw_speed = values.get("enhanced_speed")
-                    if raw_speed is None:
-                        raw_speed = values.get("speed")
-                    row["pace_mm_ss_per_mile"] = _pace_mmss_from_mps(raw_speed)
+                    # --- speed/enhanced_speed → pace_min_per_mile (single column) ---
+                    if "pace_mm_ss_per_mile" in header_set:
+                        raw_speed = values.get("enhanced_speed")
+                        if raw_speed is None:
+                            raw_speed = values.get("speed")
+                        row["pace_mm_ss_per_mile"] = _pace_mmss_from_mps(raw_speed)
 
                     # --- coords semicircles → degrees (replace) ---
-                    row["latitude_deg"] = _semicircles_to_degrees(
-                        values.get("position_lat")
-                    )
-                    row["longitude_deg"] = _semicircles_to_degrees(
-                        values.get("position_long")
-                    )
+                    if "latitude_deg" in header_set:
+                        row["latitude_deg"] = _semicircles_to_degrees(
+                            values.get("position_lat")
+                        )
+                    if "longitude_deg" in header_set:
+                        row["longitude_deg"] = _semicircles_to_degrees(
+                            values.get("position_long")
+                        )
                 writer.writerow(row)
                 rows_written += 1
 

@@ -159,7 +159,20 @@ def _default_port():
 
 
 def _default_debug():
-    return bool(int(os.getenv("FLASK_DEBUG", "0")))
+    raw = os.getenv("FLASK_DEBUG")
+    if raw is None:
+        return False
+
+    val = raw.strip().lower()
+    if val in {"1", "true", "yes", "on"}:
+        return True
+    if val in {"0", "false", "no", "off"}:
+        return False
+
+    try:
+        return bool(int(val))
+    except ValueError:
+        return False
 
 
 # -------------------------

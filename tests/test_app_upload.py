@@ -13,10 +13,10 @@ import pytest
 @pytest.fixture
 def client(monkeypatch, tmp_path):
     # Isolate all paths via env
-    monkeypatch.setenv("APP_CONFIG_DIR", str(tmp_path / "config"))
-    monkeypatch.setenv("APP_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setenv("APP_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setenv("APP_LOGS_DIR", str(tmp_path / "state" / "logs"))
+    # monkeypatch.setenv("FIT_CONVERTER_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("FIT_CONVERTER_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("FIT_CONVERTER_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("FIT_CONVERTER_LOGS_DIR", str(tmp_path / "state" / "logs"))
 
     # Import after env is set so app picks up our tmp dirs
     import fit_converter.app as appmod

@@ -1,6 +1,6 @@
 [project]
 name = "fit-converter"
-version = "0.6.0"
+version = "0.7.0"
 description = "Convert Garmin FIT files to CSV via CLI, web UI, and watcher."
 readme = "README.md"
 requires-python = ">=3.14"
